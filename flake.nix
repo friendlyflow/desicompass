@@ -207,9 +207,9 @@
         let
           cfg = config.services.desicompass;
           system = pkgs.stdenv.hostPlatform.system;
-          desicompassPkg = self.packages.${system}.desicompass;
-          sicompassPkg = sicompass.packages.${system}.default;
-          loginsicompassPkg = sicompass.packages.${system}.loginsicompass;
+          desicompassPkg = cfg.package;
+          sicompassPkg = cfg.sicompassPackage;
+          loginsicompassPkg = cfg.greeter.package;
         in
         {
           options.services.desicompass = {
@@ -218,6 +218,31 @@
 
             greeter.enable = lib.mkEnableOption
               "loginsicompass as the greetd greeter, replacing the current one";
+
+            # The three packages are options so that a configuration can build
+            # them from its own checkouts (for example a local working tree
+            # read with `builtins.getFlake "git+file://..."`) instead of the
+            # revisions this flake's lock file pins.
+            package = lib.mkOption {
+              type = lib.types.package;
+              default = self.packages.${system}.desicompass;
+              defaultText = lib.literalExpression "desicompass.packages.\${system}.desicompass";
+              description = "The desicompass compositor package.";
+            };
+
+            sicompassPackage = lib.mkOption {
+              type = lib.types.package;
+              default = sicompass.packages.${system}.default;
+              defaultText = lib.literalExpression "sicompass.packages.\${system}.default";
+              description = "The sicompass package the session runs (`sicompass --session`).";
+            };
+
+            greeter.package = lib.mkOption {
+              type = lib.types.package;
+              default = sicompass.packages.${system}.loginsicompass;
+              defaultText = lib.literalExpression "sicompass.packages.\${system}.loginsicompass";
+              description = "The loginsicompass greeter package.";
+            };
 
             xkbLayout = lib.mkOption {
               type = lib.types.nullOr lib.types.str;

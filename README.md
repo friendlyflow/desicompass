@@ -57,6 +57,11 @@ The flake has a NixOS module. Turn it on in two steps, in this order:
 
 The session's output goes to the journal: `journalctl -t desicompass -b`.
 
+The module takes the compositor, Sicompass and the login screen from the
+revisions this flake pins. To build them from your own checkouts instead, set
+`services.desicompass.package`, `services.desicompass.sicompassPackage` and
+`services.desicompass.greeter.package`.
+
 ## Trying it without logging out
 
 ```bash
