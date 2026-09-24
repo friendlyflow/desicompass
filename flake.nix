@@ -9,18 +9,22 @@
     # recorded in Cargo.lock, so there is no hash to keep up to date.
     crane.url = "github:ipetkov/crane";
 
-    # The session runs `sicompass --session` inside the compositor, and until
-    # loginsicompass has its own repo, the greeter package comes from here too.
-    # Following our nixpkgs keeps one nixpkgs in the system closure rather
-    # than two.
+    # The session runs `sicompass --session` inside the compositor, and the
+    # greeter runs inside it too. Following our nixpkgs keeps one nixpkgs in
+    # the system closure rather than several.
     sicompass = {
       url = "github:friendlyflow/sicompass";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.crane.follows = "crane";
     };
+    loginsicompass = {
+      url = "github:friendlyflow/loginsicompass";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.crane.follows = "crane";
+    };
   };
 
-  outputs = { self, nixpkgs, crane, sicompass }:
+  outputs = { self, nixpkgs, crane, sicompass, loginsicompass }:
     let
       # Linux only: a Wayland compositor on DRM/KMS, libinput and libseat has
       # nothing to run on anywhere else.
@@ -239,8 +243,8 @@
 
             greeter.package = lib.mkOption {
               type = lib.types.package;
-              default = sicompass.packages.${system}.loginsicompass;
-              defaultText = lib.literalExpression "sicompass.packages.\${system}.loginsicompass";
+              default = loginsicompass.packages.${system}.default;
+              defaultText = lib.literalExpression "loginsicompass.packages.\${system}.default";
               description = "The loginsicompass greeter package.";
             };
 

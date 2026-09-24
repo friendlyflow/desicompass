@@ -72,7 +72,8 @@ boundary, and only on the TTY/GBM path, so a nested run does not catch it.
 ## Architecture: the NixOS module
 
 `nixosModules.default` lives in this repo's [flake.nix](flake.nix), and it
-takes the `sicompass` and `loginsicompass` packages from flake inputs. It is
+takes the `sicompass` and `loginsicompass` packages from the flake inputs of
+the same names. It is
 enabled in two steps (`services.desicompass.enable`, then `.greeter.enable`),
 and the comments in the module explain each non-obvious line: the session
 `.desktop` file has to reach `sessionPackages`, `systemPackages` *and*
