@@ -72,7 +72,9 @@ pub enum ResolvedBackend {
 
 /// The live GPU backend.
 pub enum Gpu {
-    Winit(WinitGraphicsBackend<GlesRenderer>),
+    // Boxed like `Tty`: the winit backend is several KB, and the enum is as
+    // large as its largest variant (clippy::large_enum_variant).
+    Winit(Box<WinitGraphicsBackend<GlesRenderer>>),
     #[cfg(feature = "tty")]
     Tty(Box<crate::tty::TtyGpu>),
 }

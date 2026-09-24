@@ -1,6 +1,8 @@
 //! desicompass — Wayland compositor entry point.
 //!
-//! Rust port of `src/desicompass-c/main.c` using smithay instead of wlroots.
+//! Rust port of `legacy-c/main.c` using smithay instead of wlroots. The C
+//! original is no longer in the tree; `git show c74694c^:legacy-c/main.c`
+//! reads it from this repo's history.
 //! Linux-only.
 //!
 //! Unlike the tinywl original this compositor is **cursorless**: it advertises
@@ -50,10 +52,8 @@ mod linux {
             egl::EGLDevice,
             input::{Event, InputEvent, KeyState, KeyboardKeyEvent},
             renderer::{
-                damage::OutputDamageTracker,
-                element::surface::WaylandSurfaceRenderElement,
-                gles::GlesRenderer,
-                ImportDma,
+                ImportDma, damage::OutputDamageTracker,
+                element::surface::WaylandSurfaceRenderElement, gles::GlesRenderer,
             },
             winit::{self, WinitEvent},
         },
@@ -61,9 +61,7 @@ mod linux {
         input::keyboard::FilterResult,
         output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
         reexports::{
-            calloop::{
-                generic::Generic, EventLoop, Interest, Mode as CalloopMode, PostAction,
-            },
+            calloop::{EventLoop, Interest, Mode as CalloopMode, PostAction, generic::Generic},
             wayland_server::Display,
         },
         utils::Transform,
@@ -218,7 +216,12 @@ mod linux {
         output.set_preferred(mode);
 
         let mut damage_tracker = OutputDamageTracker::from_output(&output);
-        let mut state = State::new(&dh, event_loop.get_signal(), output.clone(), Gpu::Winit(backend));
+        let mut state = State::new(
+            &dh,
+            event_loop.get_signal(),
+            output.clone(),
+            Gpu::Winit(Box::new(backend)),
+        );
 
         // Advertise zwp_linux_dmabuf_v1 with per-surface feedback.
         //
@@ -233,12 +236,19 @@ mod linux {
         // The device we name has to be the one the client will allocate on,
         // which on a single-GPU machine is trivially the same node we render
         // with. On a hybrid laptop this is the first thing to get wrong.
-        let render_node = EGLDevice::device_for_display(state.backend.renderer().egl_context().display())
-            .ok()
-            .and_then(|device| device.try_get_render_node().ok().flatten());
+        let render_node =
+            EGLDevice::device_for_display(state.backend.renderer().egl_context().display())
+                .ok()
+                .and_then(|device| device.try_get_render_node().ok().flatten());
         match render_node {
             Some(node) => {
-                let formats: Vec<_> = state.backend.renderer().dmabuf_formats().iter().copied().collect();
+                let formats: Vec<_> = state
+                    .backend
+                    .renderer()
+                    .dmabuf_formats()
+                    .iter()
+                    .copied()
+                    .collect();
                 info!(
                     "advertising zwp_linux_dmabuf_v1 on {:?} with {} formats",
                     node.dev_path().unwrap_or_default(),
@@ -251,7 +261,9 @@ mod linux {
             }
             // Not fatal: shm clients still work, which is most of the test
             // suite. Hardware Vulkan clients will not.
-            None => warn!("no DRM render node found; dmabuf is unavailable and GPU clients cannot present"),
+            None => warn!(
+                "no DRM render node found; dmabuf is unavailable and GPU clients cannot present"
+            ),
         }
 
         let (xkb, source) = crate::xkb::resolve(&args.xkb_overrides());
@@ -315,7 +327,9 @@ mod linux {
                         size,
                         refresh: 60_000,
                     };
-                    state.output.change_current_state(Some(mode), None, None, None);
+                    state
+                        .output
+                        .change_current_state(Some(mode), None, None, None);
                     state.output.set_preferred(mode);
                     state.relayout();
                 }
@@ -350,7 +364,8 @@ mod linux {
                 _ => {}
             });
 
-            if let smithay::reexports::winit::event_loop::pump_events::PumpStatus::Exit(_) = status {
+            if let smithay::reexports::winit::event_loop::pump_events::PumpStatus::Exit(_) = status
+            {
                 break;
             }
 
@@ -371,8 +386,7 @@ mod linux {
                 // Irrefutable without the `tty` feature, where `Gpu` has a
                 // single variant — but not with it.
                 #[allow(irrefutable_let_patterns)]
-                let Gpu::Winit(backend) = backend
-                else {
+                let Gpu::Winit(backend) = backend else {
                     unreachable!("run_winit only ever builds Gpu::Winit")
                 };
                 let age = backend.buffer_age().unwrap_or(0);

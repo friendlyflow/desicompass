@@ -165,7 +165,10 @@ fn resolve_with(
 
     match found {
         Some((names, source)) => (names.overridden_by(overrides), source),
-        None => (XkbNames::default().overridden_by(overrides), Source::Default),
+        None => (
+            XkbNames::default().overridden_by(overrides),
+            Source::Default,
+        ),
     }
 }
 
@@ -351,7 +354,10 @@ BACKSPACE="guess"
         };
         let (names, source) = resolve_with(&overrides, || Some(be()), no_files, no_env);
         assert_eq!(source, Source::CommandLine);
-        assert_eq!(names, overrides, "no model or options borrowed from localed");
+        assert_eq!(
+            names, overrides,
+            "no model or options borrowed from localed"
+        );
     }
 
     #[test]
@@ -377,10 +383,15 @@ BACKSPACE="guess"
         let (names, source) = resolve_with(
             &XkbNames::default(),
             || Some(empty),
-            |path| (path == "/etc/X11/xorg.conf.d/00-keyboard.conf").then(|| NIXOS_XORG_CONF.into()),
+            |path| {
+                (path == "/etc/X11/xorg.conf.d/00-keyboard.conf").then(|| NIXOS_XORG_CONF.into())
+            },
             no_env,
         );
-        assert_eq!(source, Source::File("/etc/X11/xorg.conf.d/00-keyboard.conf"));
+        assert_eq!(
+            source,
+            Source::File("/etc/X11/xorg.conf.d/00-keyboard.conf")
+        );
         assert_eq!(names, be(), "the whole tuple comes from the file");
     }
 

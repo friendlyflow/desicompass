@@ -2,7 +2,7 @@
 //!
 //! When a binding matches, the compositor consumes the key instead of
 //! forwarding it to the focused client. This mirrors `handle_keybinding()` in
-//! `src/desicompass-c/main.c`, with a different modifier and a much larger
+//! `legacy-c/main.c`, with a different modifier and a much larger
 //! map.
 //!
 //! ## Why Super and not Alt
@@ -117,6 +117,9 @@ pub fn evaluate(mods: Mods, keysym: u32) -> BindingAction {
 /// not the raw Latin one used for the bindings above. `XF86Switch_VT_n` only
 /// exists at the Ctrl+Alt level of the function keys; the raw sym is plain
 /// `F1`, which would never match here.
+///
+/// Only the TTY backend switches VTs, since a nested compositor has no VT.
+#[cfg(any(test, feature = "tty"))]
 pub fn vt_switch_target(keysym: u32) -> Option<i32> {
     const FIRST: u32 = keysyms::KEY_XF86Switch_VT_1;
     const LAST: u32 = keysyms::KEY_XF86Switch_VT_12;
@@ -217,10 +220,7 @@ mod tests {
 
     #[test]
     fn layout_and_spawn() {
-        assert_eq!(
-            evaluate(sup(), keysyms::KEY_m),
-            BindingAction::ToggleLayout
-        );
+        assert_eq!(evaluate(sup(), keysyms::KEY_m), BindingAction::ToggleLayout);
         assert_eq!(evaluate(sup(), keysyms::KEY_Return), BindingAction::Spawn);
     }
 
@@ -346,6 +346,9 @@ mod tests {
         // here. Uppercase 'J' is what a *modified* sym would look like, and
         // must not be bound - if it ever matches, the caller is passing the
         // wrong sym.
-        assert_eq!(evaluate(sup_shift(), keysyms::KEY_J), BindingAction::PassThrough);
+        assert_eq!(
+            evaluate(sup_shift(), keysyms::KEY_J),
+            BindingAction::PassThrough
+        );
     }
 }

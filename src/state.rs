@@ -1,43 +1,44 @@
 //! Compositor state — all Wayland protocol state in one struct, implementing
 //! the smithay delegate traits.
 //!
-//! Mirrors the `tinywl_server` struct in `src/desicompass-c/main.c` but
+//! Mirrors the `tinywl_server` struct in `legacy-c/main.c` but
 //! expressed through smithay's typed API instead of raw wlroots calls, and
 //! without the cursor half: desicompass is keyboard-driven and advertises no
 //! `wl_pointer` at all.
 
 use std::time::Instant;
 
+use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
     backend::{allocator::dmabuf::Dmabuf, renderer::ImportDma},
     desktop::{PopupKind, PopupManager, Space, Window},
     input::{
-        dnd::DndGrabHandler, keyboard::FilterResult, pointer::CursorImageStatus, Seat,
-        SeatHandler, SeatState,
+        Seat, SeatHandler, SeatState, dnd::DndGrabHandler, keyboard::FilterResult,
+        pointer::CursorImageStatus,
     },
     output::Output,
     reexports::{
         calloop::LoopSignal,
         wayland_server::{
+            Client, DisplayHandle, Resource,
             backend::{ClientData, ClientId, DisconnectReason},
             protocol::{wl_buffer::WlBuffer, wl_seat::WlSeat, wl_surface::WlSurface},
-            Client, DisplayHandle, Resource,
         },
     },
     utils::{Logical, Rectangle, Serial, Size},
     wayland::{
         buffer::BufferHandler,
-        dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
         compositor::{
-            get_parent, is_sync_subsurface, with_states, CompositorClientState, CompositorHandler,
-            CompositorState,
+            CompositorClientState, CompositorHandler, CompositorState, get_parent,
+            is_sync_subsurface, with_states,
         },
+        dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
         output::OutputManagerState,
         pointer_constraints::PointerConstraintsHandler,
         selection::{
-            data_device::{DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler},
             SelectionHandler,
+            data_device::{DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler},
         },
         shell::xdg::{
             PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
@@ -46,7 +47,6 @@ use smithay::{
         shm::{ShmHandler, ShmState},
     },
 };
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use tracing::{debug, error, info, warn};
 
 use crate::focus::{FocusStack, WindowId};
@@ -196,16 +196,16 @@ impl State {
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<Window> {
         self.space
             .elements()
-            .find(|w| {
-                w.toplevel()
-                    .is_some_and(|t| t.wl_surface() == surface)
-            })
+            .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
             .cloned()
     }
 
     /// The window owning `id`.
     pub fn window(&self, id: WindowId) -> Option<&Window> {
-        self.windows.iter().find(|(w, _)| *w == id).map(|(_, win)| win)
+        self.windows
+            .iter()
+            .find(|(w, _)| *w == id)
+            .map(|(_, win)| win)
     }
 
     /// The id of the window owning `surface`.
@@ -430,14 +430,20 @@ pub fn apply_keybinding(
             }
         }
 
-        BindingAction::MoveNext => swap_focused_with(state, focused.and_then(|id| state.tiler.next(id))),
-        BindingAction::MovePrev => swap_focused_with(state, focused.and_then(|id| state.tiler.prev(id))),
-        BindingAction::MoveLeft => {
-            swap_focused_with(state, focused.and_then(|id| state.tiler.neighbour(id, Dir::Left)))
+        BindingAction::MoveNext => {
+            swap_focused_with(state, focused.and_then(|id| state.tiler.next(id)))
         }
-        BindingAction::MoveRight => {
-            swap_focused_with(state, focused.and_then(|id| state.tiler.neighbour(id, Dir::Right)))
+        BindingAction::MovePrev => {
+            swap_focused_with(state, focused.and_then(|id| state.tiler.prev(id)))
         }
+        BindingAction::MoveLeft => swap_focused_with(
+            state,
+            focused.and_then(|id| state.tiler.neighbour(id, Dir::Left)),
+        ),
+        BindingAction::MoveRight => swap_focused_with(
+            state,
+            focused.and_then(|id| state.tiler.neighbour(id, Dir::Right)),
+        ),
 
         BindingAction::CycleRecent => {
             if let Some(id) = state.focus.cycle() {

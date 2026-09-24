@@ -148,7 +148,10 @@ impl Tiler {
     ///
     /// A total function of `(order, layout, area)`: same inputs, same tiles,
     /// no hidden state.
-    pub fn arrange(&self, area: Rectangle<i32, Logical>) -> Vec<(WindowId, Rectangle<i32, Logical>)> {
+    pub fn arrange(
+        &self,
+        area: Rectangle<i32, Logical>,
+    ) -> Vec<(WindowId, Rectangle<i32, Logical>)> {
         let n = self.order.len();
         if n == 0 {
             return Vec::new();
@@ -169,7 +172,8 @@ impl Tiler {
                     // left as a dead stripe on the right edge.
                     let x0 = area.loc.x + scale(area.size.w, k, n);
                     let x1 = area.loc.x + scale(area.size.w, k + 1, n);
-                    let rect = Rectangle::new((x0, area.loc.y).into(), (x1 - x0, area.size.h).into());
+                    let rect =
+                        Rectangle::new((x0, area.loc.y).into(), (x1 - x0, area.size.h).into());
                     (self.order[k], inset(rect, self.gap))
                 })
                 .collect(),
@@ -248,10 +252,7 @@ mod tests {
     fn swap_exchanges_positions() {
         let mut t = tiler(3);
         assert!(t.swap(WindowId(0), WindowId(2)));
-        assert_eq!(
-            t.order(),
-            &[WindowId(2), WindowId(1), WindowId(0)]
-        );
+        assert_eq!(t.order(), &[WindowId(2), WindowId(1), WindowId(0)]);
     }
 
     #[test]

@@ -35,27 +35,25 @@ use smithay::{
     backend::{
         allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
         drm::{
+            DrmDevice, DrmDeviceFd, DrmEvent, DrmNode,
             compositor::{DrmCompositor, FrameFlags},
             exporter::gbm::GbmFramebufferExporter,
-            DrmDevice, DrmDeviceFd, DrmEvent, DrmNode,
         },
         egl::{EGLContext, EGLDevice, EGLDisplay},
         input::InputEvent,
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
-            damage::OutputDamageTracker, element::surface::WaylandSurfaceRenderElement,
-            gles::GlesRenderer, ImportDma, ImportEgl,
+            ImportDma, ImportEgl, damage::OutputDamageTracker,
+            element::surface::WaylandSurfaceRenderElement, gles::GlesRenderer,
         },
-        session::{libseat::LibSeatSession, Event as SessionEvent, Session},
+        session::{Event as SessionEvent, Session, libseat::LibSeatSession},
         udev::primary_gpu,
     },
-    desktop::space::{space_render_elements, SpaceRenderElements},
+    desktop::space::{SpaceRenderElements, space_render_elements},
     output::{Mode, Output, OutputModeSource, PhysicalProperties, Scale, Subpixel},
     reexports::{
-        calloop::{
-            generic::Generic, EventLoop, Interest, Mode as CalloopMode, PostAction,
-        },
-        drm::control::{connector, crtc, Device as _, ModeTypeFlags},
+        calloop::{EventLoop, Interest, Mode as CalloopMode, PostAction, generic::Generic},
+        drm::control::{Device as _, ModeTypeFlags, connector, crtc},
         input::Libinput,
         rustix::fs::OFlags,
         wayland_server::Display,
@@ -93,12 +91,8 @@ pub struct TtyGpu {
 }
 
 /// The concrete `DrmCompositor` this backend uses.
-type GbmDrmCompositor = DrmCompositor<
-    GbmAllocator<DrmDeviceFd>,
-    GbmFramebufferExporter<DrmDeviceFd>,
-    (),
-    DrmDeviceFd,
->;
+type GbmDrmCompositor =
+    DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
 
 impl TtyGpu {
     pub fn renderer(&mut self) -> &mut GlesRenderer {
@@ -224,7 +218,13 @@ pub fn run(args: TtyArgs) -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|device| device.try_get_render_node().ok().flatten())
     {
         Some(node) => {
-            let formats: Vec<_> = state.backend.renderer().dmabuf_formats().iter().copied().collect();
+            let formats: Vec<_> = state
+                .backend
+                .renderer()
+                .dmabuf_formats()
+                .iter()
+                .copied()
+                .collect();
             info!(
                 "advertising zwp_linux_dmabuf_v1 on {:?} with {} formats",
                 node.dev_path().unwrap_or_default(),
@@ -266,9 +266,8 @@ pub fn run(args: TtyArgs) -> Result<(), Box<dyn std::error::Error>> {
     state.spawn_cmd = args.terminal.clone();
 
     // ---- Input ----------------------------------------------------------
-    let mut libinput = Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(
-        session.clone().into(),
-    );
+    let mut libinput =
+        Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.clone().into());
     libinput
         .udev_assign_seat(&seat_name)
         .map_err(|()| "libinput refused the seat")?;
@@ -314,8 +313,9 @@ pub fn run(args: TtyArgs) -> Result<(), Box<dyn std::error::Error>> {
     // ---- Page flips -----------------------------------------------------
     event_loop
         .handle()
-        .insert_source(drm_notifier, move |event, meta, state: &mut State| {
-            match event {
+        .insert_source(
+            drm_notifier,
+            move |event, meta, state: &mut State| match event {
                 DrmEvent::VBlank(_crtc) => {
                     if let Gpu::Tty(tty) = &mut state.backend {
                         let _ = tty.compositor.frame_submitted();
@@ -323,8 +323,8 @@ pub fn run(args: TtyArgs) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = meta;
                 }
                 DrmEvent::Error(err) => error!("DRM error: {err}"),
-            }
-        })?;
+            },
+        )?;
 
     // ---- Startup command ------------------------------------------------
     // Spawned through `StartupChild` so the compositor comes down when its
@@ -362,10 +362,8 @@ fn render(state: &mut State) {
         return;
     }
 
-    type SpaceElements = SpaceRenderElements<
-        GlesRenderer,
-        WaylandSurfaceRenderElement<GlesRenderer>,
-    >;
+    type SpaceElements =
+        SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>;
     let elements: Vec<SpaceElements> =
         match space_render_elements(&mut tty.renderer, [&*space], &output, 1.0) {
             Ok(elements) => elements,
