@@ -27,6 +27,13 @@ is installed system-wide.
 - Linux only. The dev shell and every package are `x86_64-linux` and
   `aarch64-linux`.
 
+## Generated files that are committed
+
+- `THIRD-PARTY-LICENSES.html`: `cargo about generate about.hbs -o
+  THIRD-PARTY-LICENSES.html` (cargo-about 0.9.2, the version the `licenses.yml`
+  workflow pins). Regenerate and commit it with any dependency change. The
+  workflow fails if it drifts.
+
 ## Code Style
 
 Follow standard Rust idioms. Use `#[allow(...)]` sparingly and only when
