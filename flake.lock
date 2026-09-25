@@ -106,11 +106,11 @@
         "nixpkgs-x86-darwin": "nixpkgs-x86-darwin_2"
       },
       "locked": {
-        "lastModified": 1790289703,
-        "narHash": "sha256-9TMRXm81Uml9dPxnjSIYqUYiL2TiLKybuAIsAVTtia4=",
+        "lastModified": 1790294979,
+        "narHash": "sha256-c+bwI8NuD8F8C/EcYDwEwurat0QsGMiBK3QONszOTGE=",
         "owner": "friendlyflow",
         "repo": "sicompass",
-        "rev": "c88ee3eea59adb4cccf06f28e1ba6d75aa0f02d6",
+        "rev": "f7e2286dc4997cf0a48902729a23d841cddc98dd",
         "type": "github"
       },
       "original": {
