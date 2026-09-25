@@ -62,6 +62,25 @@ revisions this flake pins. To build them from your own checkouts instead, set
 `services.desicompass.package`, `services.desicompass.sicompassPackage` and
 `services.desicompass.greeter.package`.
 
+## A session for development
+
+A second session runs what `cargo build` last produced, so you can test a
+change on the real display and through the real login without rebuilding the
+system:
+
+```nix
+services.desicompass.dev.enable = true;
+services.desicompass.dev.checkout = "/home/alice/src/friendlyflow";
+```
+
+`checkout` is the directory that holds the `desicompass` and `sicompass`
+checkouts side by side. The login screen then offers "Desicompass (dev)" next to
+"Desicompass". It runs `target/debug/desicompass` and `target/debug/sicompass`
+from those checkouts (set `dev.profile = "release"` for release builds), and
+falls back to the installed version of either one you have not built. If the
+dev build fails, you are back at the login screen and "Desicompass" still works. Its output goes to the journal:
+`journalctl -t desicompass-dev -b`.
+
 ## Trying it without logging out
 
 ```bash
@@ -79,13 +98,13 @@ is the smallest Vulkan client there is.
 
 ```bash
 nix develop                     # optional, brings the whole toolchain
-cargo build --release --features tty
+cargo build --release
 cargo test
 ```
 
-The `tty` feature is the backend that takes over a real display (DRM/KMS,
-libinput, libseat). It is off by default so that the nested backend builds
-without those libraries. `nix build` builds the packaged version, with `tty` on.
+Every build has both backends, the nested one and the one that takes over a real
+display (DRM/KMS, libinput, libseat), so it needs those libraries. The dev shell
+has them. `nix build` builds the packaged version.
 
 desicompass runs on Linux only.
 

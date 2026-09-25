@@ -35,6 +35,33 @@
 
       # Single source of truth for the version.
       version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+
+      # What the compositor needs on LD_LIBRARY_PATH at runtime, shared by the
+      # package wrapper and the dev session so the two cannot drift. Dispatch
+      # libraries only (libGL is libglvnd, libgbm dlopens a backend), never
+      # nixpkgs' `mesa`: see mesaVendor.
+      runtimeLibs = pkgs: with pkgs; [
+        libGL
+        libgbm
+        libxkbcommon
+        wayland
+        libinput
+        seatd
+        udev
+      ];
+
+      # The GL/EGL/GBM *vendor* behind those dispatch libraries: the running
+      # system's driver, never nixpkgs' own mesa. With nixpkgs' libgbm on the
+      # path and EGL resolving to the system driver, two incompatible Mesa
+      # builds ended up in one process on the GBM path (the TTY backend only,
+      # which is why it survived nested) and it segfaulted inside
+      # libEGL_mesa. Applied as defaults, so on a non-NixOS host, or for a
+      # deliberate driver test, the environment still wins.
+      mesaVendor = {
+        __EGL_VENDOR_LIBRARY_DIRS = "/run/opengl-driver/share/glvnd/egl_vendor.d";
+        LIBGL_DRIVERS_PATH = "/run/opengl-driver/lib/dri";
+        GBM_BACKENDS_PATH = "/run/opengl-driver/lib/gbm";
+      };
     in
     {
       devShells = forAllSystems (system:
@@ -56,7 +83,7 @@
               libGL
               libdrm
 
-              # The TTY backend (the `tty` cargo feature): libinput for input
+              # The TTY backend: libinput for input
               # devices, seatd for libseat (nixpkgs has no `libseat` attribute;
               # the daemon package ships the library, and the logind backend
               # is what actually gets used), udev for device enumeration.
@@ -131,10 +158,7 @@
             pname = "desicompass";
             src = craneLib.cleanCargoSource ./.;
             strictDeps = true;
-            # `tty` is the TTY/DRM backend. Off by default in the crate so a
-            # plain `cargo build` needs none of it, but a session package that
-            # cannot take the display would be pointless.
-            cargoExtraArgs = "--locked --features tty";
+            cargoExtraArgs = "--locked";
             # The suite runs in ci.yml and locally.
             doCheck = false;
             nativeBuildInputs = with pkgs; [ pkg-config ];
@@ -157,27 +181,15 @@
 
             # Only the dispatch libraries go on LD_LIBRARY_PATH, and the
             # GL/EGL/GBM *vendor* is pointed at /run/opengl-driver. Both halves
-            # are required: with nixpkgs' libgbm on the path and EGL resolving
-            # to the system driver, two incompatible Mesa builds ended up in
-            # one process on the GBM path (the TTY backend only, which is why
-            # it survived nested) and it segfaulted inside libEGL_mesa.
+            # are required, see runtimeLibs and mesaVendor.
             #
             # `--set-default` rather than `--set`, so on a non-NixOS host, or
             # for a deliberate driver test, the environment still wins.
             postInstall = ''
               wrapProgram $out/bin/desicompass \
-                --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath (with pkgs; [
-                  libGL
-                  libgbm
-                  libxkbcommon
-                  wayland
-                  libinput
-                  seatd
-                  udev
-                ])}" \
-                --set-default __EGL_VENDOR_LIBRARY_DIRS /run/opengl-driver/share/glvnd/egl_vendor.d \
-                --set-default LIBGL_DRIVERS_PATH /run/opengl-driver/lib/dri \
-                --set-default GBM_BACKENDS_PATH /run/opengl-driver/lib/gbm
+                --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath (runtimeLibs pkgs)}" \
+                ${pkgs.lib.concatStringsSep " \\\n  " (pkgs.lib.mapAttrsToList
+                  (name: value: "--set-default ${name} ${value}") mesaVendor)}
             '';
 
             meta = with pkgs.lib; {
@@ -207,6 +219,12 @@
       #     turning on once the session above is known to work, because a
       #     greeter that fails to start leaves no graphical way in at all -
       #     recovery is a VT and `nixos-rebuild --rollback`.
+      #
+      #   services.desicompass.dev.enable = true;
+      #     For development: adds "Desicompass (dev)" next to "Desicompass",
+      #     running whatever `cargo build` last left in local checkouts. A
+      #     broken build costs a login attempt, and the stable session is one
+      #     entry away.
       nixosModules.default = { config, lib, pkgs, ... }:
         let
           cfg = config.services.desicompass;
@@ -246,6 +264,37 @@
               default = loginsicompass.packages.${system}.default;
               defaultText = lib.literalExpression "loginsicompass.packages.\${system}.default";
               description = "The loginsicompass greeter package.";
+            };
+
+            dev = {
+              enable = lib.mkEnableOption ''
+                a second session, "Desicompass (dev)", that runs the compositor
+                and sicompass from local checkouts as `cargo build` left them.
+                Either one that has not been built falls back to its package'';
+
+              checkout = lib.mkOption {
+                # A string, not a path: a path would be copied into the store at
+                # evaluation, and the whole point is reading the checkout at
+                # login.
+                type = lib.types.strMatching "/.*";
+                example = "/home/alice/src/friendlyflow";
+                description = ''
+                  Absolute path of the directory holding the `desicompass` and
+                  `sicompass` checkouts side by side.
+                '';
+              };
+
+              profile = lib.mkOption {
+                type = lib.types.str;
+                default = "debug";
+                example = "release";
+                description = ''
+                  The cargo profile directory under `target/` to run from.
+                  `debug` is what `cargo build`, `cargo test` and `cargo run`
+                  already produce, and keeps debug assertions and overflow
+                  checks on.
+                '';
+              };
             };
 
             xkbLayout = lib.mkOption {
@@ -338,6 +387,73 @@
                 # by mkDerivation, not by `//` on a built derivation.
                 providedSessions = [ "desicompass" ];
               };
+
+              # The dev session: the binaries in the checkouts, for testing the
+              # TTY backend and the login path (greetd, the session bus, the
+              # journal) without a nixos-rebuild per change. Each binary falls
+              # back to its package when the checkout has not built it, so the
+              # one session serves work on the app, the compositor, or both.
+              #
+              # A cargo-built binary has a RUNPATH into the dev shell's store
+              # for what it links, but nothing for what it dlopens, and none of
+              # the package wrapper's environment. The scripts put that back.
+              # The libraries come from this flake's nixpkgs, which is the one
+              # the desicompass dev shell builds against, so the compositor gets
+              # the very store paths it was built with.
+              devPkgs = nixpkgsFor.${system};
+              devBinary = repo:
+                lib.escapeShellArg "${cfg.dev.checkout}/${repo}/target/${cfg.dev.profile}/${repo}";
+
+              devStartupScript = pkgs.writeShellScript "desicompass-dev-startup" ''
+                app=${devBinary "sicompass"}
+                if [ -x "$app" ]; then
+                  echo "desicompass-dev: sicompass from $app"
+                  # What sicompass's package wrapper sets, less sdl3, which a
+                  # cargo build reaches through its RUNPATH.
+                  export PATH=${lib.makeBinPath [ devPkgs.xvfb-run ]}''${PATH:+:$PATH}
+                  export LD_LIBRARY_PATH=${lib.makeLibraryPath (with devPkgs; [
+                    vulkan-loader
+                    libxkbcommon
+                    wayland
+                  ])}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+                  exec "$app" --session
+                fi
+                echo "desicompass-dev: no $app, running the packaged sicompass"
+                exec ${sicompassPkg}/bin/sicompass --session
+              '';
+
+              devSessionScript = pkgs.writeShellScript "desicompass-dev-session" ''
+                # A panic is the likeliest way a dev build ends, and without
+                # this the journal gets its message but not where it happened.
+                export RUST_BACKTRACE=1
+
+                compositor=${devBinary "desicompass"}
+                if [ -x "$compositor" ]; then
+                  echo "desicompass-dev: desicompass from $compositor"
+                  export LD_LIBRARY_PATH=${lib.makeLibraryPath (runtimeLibs devPkgs)}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+                  ${lib.concatStringsSep "\n  " (lib.mapAttrsToList
+                    (name: value: "export ${name}=\"\${${name}-${value}}\"") mesaVendor)}
+                else
+                  echo "desicompass-dev: no $compositor, running the packaged desicompass"
+                  compositor=${desicompassPkg}/bin/desicompass
+                fi
+                exec "$compositor" --backend tty${xkbArgs} --startup-cmd ${devStartupScript}
+              '';
+
+              # Its own journal identifier, so `journalctl -t desicompass-dev`
+              # holds only dev runs. The same systemd-cat and dbus-run-session
+              # as the stable entry, for the same reasons.
+              devSessionPackage = pkgs.writeTextDir
+ "share/wayland-sessions/desicompass-dev.desktop" ''
+                [Desktop Entry]
+                Name=Desicompass (dev)
+                Comment=Desicompass and Sicompass as built in ${cfg.dev.checkout}
+                Exec=${pkgs.systemd}/bin/systemd-cat --identifier=desicompass-dev ${pkgs.dbus}/bin/dbus-run-session ${devSessionScript}
+                Type=Application
+                DesktopNames=Desicompass
+              '' // {
+                providedSessions = [ "desicompass-dev" ];
+              };
             in
             lib.mkMerge [
 
@@ -353,6 +469,13 @@
                     "services.desicompass.greeter.enable requires "
                     + "services.desicompass.enable: the greeter needs the session "
                     + "it offers, and the at-spi2-core that makes it audible.";
+                }
+                {
+                  assertion = cfg.dev.enable -> cfg.enable;
+                  message =
+                    "services.desicompass.dev.enable requires "
+                    + "services.desicompass.enable: the dev session relies on the "
+                    + "wayland-sessions link and the at-spi2-core it sets up.";
                 }
               ];
             }
@@ -382,6 +505,13 @@
               # default. Without this the entry is installed and invisible,
               # with no error anywhere.
               environment.pathsToLink = [ "/share/wayland-sessions" ];
+            })
+
+            (lib.mkIf cfg.dev.enable {
+              # Both lists, for the same reason as the stable entry.
+              # loginsicompass finds it through systemPackages like any other.
+              services.displayManager.sessionPackages = [ devSessionPackage ];
+              environment.systemPackages = [ devSessionPackage ];
             })
 
             (lib.mkIf cfg.greeter.enable {

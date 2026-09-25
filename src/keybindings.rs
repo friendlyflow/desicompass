@@ -119,7 +119,6 @@ pub fn evaluate(mods: Mods, keysym: u32) -> BindingAction {
 /// `F1`, which would never match here.
 ///
 /// Only the TTY backend switches VTs, since a nested compositor has no VT.
-#[cfg(any(test, feature = "tty"))]
 pub fn vt_switch_target(keysym: u32) -> Option<i32> {
     const FIRST: u32 = keysyms::KEY_XF86Switch_VT_1;
     const LAST: u32 = keysyms::KEY_XF86Switch_VT_12;

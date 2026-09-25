@@ -13,20 +13,6 @@ repository = "https://github.com/friendlyflow/desicompass"
 name = "desicompass"
 path = "src/main.rs"
 
-[features]
-# The TTY/DRM backend, off by default on purpose. Enabling it pulls in
-# libinput, libseat, libudev and gbm, which the Ubuntu CI runner does not
-# install and `nix develop` only provides on Linux. It also keeps the winit
-# backend, which is what nested development runs use, buildable without them.
-# The Nix package and CI build the session binary with `--features tty`.
-tty = [
-    "smithay/backend_gbm",
-    "smithay/backend_libinput",
-    "smithay/backend_udev",
-    "smithay/backend_session_libseat",
-    "smithay/renderer_multi",
-]
-
 [target.'cfg(target_os = "linux")'.dependencies]
 # Smithay: Wayland compositor framework.
 # backend_winit  — run inside an existing X11/Wayland session (development).
@@ -35,13 +21,15 @@ tty = [
 # use_system_lib — link against system wayland/xkb C libraries.
 # desktop        — Space + Window layout helpers.
 # wayland_frontend — server-side Wayland protocol implementations.
-# backend_drm    — not for the TTY backend (that is the `tty` feature below),
-#                  but for `DrmNode`. Advertising zwp_linux_dmabuf_v1 means
-#                  telling clients which device to allocate on, and the
-#                  device id comes from `EGLDevice::try_get_render_node`,
-#                  which is gated on this feature. It pulls the `drm` and
-#                  `drm-ffi` crates only — no system library, and the CI
-#                  runner already installs libdrm-dev.
+# backend_drm    — `DrmNode`, for the TTY backend and for advertising
+#                  zwp_linux_dmabuf_v1, which means telling clients which
+#                  device to allocate on (`EGLDevice::try_get_render_node` is
+#                  gated on this feature).
+# backend_gbm, backend_libinput, backend_udev, backend_session_libseat,
+# renderer_multi — the TTY backend: take the display through DRM/KMS and
+#                  libseat, and read input through libinput. Always built, so
+#                  a plain `cargo build` can run a real session. libinput,
+#                  libseat, libudev and gbm come from the dev shell.
 #
 # Pinned to a git commit rather than a crates.io release: 0.7.0 (June 2025)
 # is the last release, and master is far ahead of it (Dispatch2 delegates,
@@ -56,6 +44,11 @@ smithay = { git = "https://github.com/Smithay/smithay", rev = "79bbed5e1199090d7
     "renderer_gl",
     "use_system_lib",
     "backend_drm",
+    "backend_gbm",
+    "backend_libinput",
+    "backend_udev",
+    "backend_session_libseat",
+    "renderer_multi",
 ] }
 
 # Logging

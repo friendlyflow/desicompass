@@ -42,9 +42,9 @@ instead, or split into separate sentences.
 
 ## Testing
 
-- `cargo test`, and `cargo clippy --all-targets --features tty` so the TTY
-  backend is linted as well. The `tty` feature is off by default so that the
-  nested (winit) backend builds without libinput, libseat, udev and gbm.
+- `cargo test` and `cargo clippy --all-targets`. Both backends are always
+  built, so libinput, libseat, udev and gbm have to be present: run cargo in
+  the dev shell.
 - Behaviour is checked in a nested run: `cargo run -- --backend auto
   --startup-cmd foot`, with `wayland-info`, `foot` and `vkcube` from the dev
   shell as test clients, cheapest first.

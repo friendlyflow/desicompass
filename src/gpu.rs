@@ -4,7 +4,7 @@
 //!   the development backend: it opens an ordinary window on the desktop you
 //!   are already logged into.
 //! * **tty** — the real one. Talks to DRM/KMS directly, takes the display,
-//!   and reads input through libinput. Only built with the `tty` feature.
+//!   and reads input through libinput.
 //!
 //! The TTY backend drives a single GPU and a single connector. Multi-GPU
 //! (`GpuManager` / `GbmGlesBackend`) and multi-output are not wired: on a
@@ -75,7 +75,6 @@ pub enum Gpu {
     // Boxed like `Tty`: the winit backend is several KB, and the enum is as
     // large as its largest variant (clippy::large_enum_variant).
     Winit(Box<WinitGraphicsBackend<GlesRenderer>>),
-    #[cfg(feature = "tty")]
     Tty(Box<crate::tty::TtyGpu>),
 }
 
@@ -88,7 +87,6 @@ impl Gpu {
     pub fn renderer(&mut self) -> &mut GlesRenderer {
         match self {
             Gpu::Winit(backend) => backend.renderer(),
-            #[cfg(feature = "tty")]
             Gpu::Tty(tty) => tty.renderer(),
         }
     }

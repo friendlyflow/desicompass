@@ -37,7 +37,7 @@ mod layout;
 mod startup;
 #[cfg(target_os = "linux")]
 mod state;
-#[cfg(all(target_os = "linux", feature = "tty"))]
+#[cfg(target_os = "linux")]
 mod tty;
 #[cfg(target_os = "linux")]
 mod xkb;
@@ -148,20 +148,12 @@ mod linux {
             .resolve(|name| std::env::var_os(name).is_some())
         {
             ResolvedBackend::Winit => run_winit(args),
-            #[cfg(feature = "tty")]
             ResolvedBackend::Tty => crate::tty::run(args_to_tty(&args)),
-            #[cfg(not(feature = "tty"))]
-            ResolvedBackend::Tty => Err(
-                "this build has no TTY backend: rebuild with `--features tty`, \
-                 or pass `--backend winit` to run nested in an existing session"
-                    .into(),
-            ),
         }
     }
 
     /// The shared settings both backends need, so the TTY module does not
     /// have to depend on the `Args` type.
-    #[cfg(feature = "tty")]
     fn args_to_tty(args: &Args) -> crate::tty::TtyArgs {
         crate::tty::TtyArgs {
             startup_cmd: args.startup_cmd.clone(),
@@ -383,9 +375,6 @@ mod linux {
                     ..
                 } = &mut state;
 
-                // Irrefutable without the `tty` feature, where `Gpu` has a
-                // single variant — but not with it.
-                #[allow(irrefutable_let_patterns)]
                 let Gpu::Winit(backend) = backend else {
                     unreachable!("run_winit only ever builds Gpu::Winit")
                 };
