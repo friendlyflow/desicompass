@@ -62,6 +62,29 @@ revisions this flake pins. To build them from your own checkouts instead, set
 `services.desicompass.package`, `services.desicompass.sicompassPackage` and
 `services.desicompass.greeter.package`.
 
+## Accessibility defaults
+
+The login screen and Sicompass share one set of accessibility defaults:
+
+```nix
+services.desicompass.accessibility = {
+  screenReader = true;       # Orca at the login screen and in the session
+  fontScale = "2.00";        # "1.00" to "2.50" in steps of 0.25
+  colorScheme = "light";     # "dark" or "light"
+  language = "nl-BE";        # "en-US", "nl-BE", "fr-BE" or "de-BE"
+  shoulderSurfingProtection = false;
+};
+```
+
+Every option is optional. They are written to `/etc/sicompass/accessibility.json`,
+and they only fill in what nobody has chosen. A choice made on the login screen,
+or in a user's own settings, wins. Left unset, the login screen starts Orca the
+first time it runs, until someone turns it off there, and the session starts it
+only when the user ticks screen reader in Settings.
+
+On another distribution, write that file by hand. The login screen's
+`docs/greeter.md` lists its keys.
+
 ## A session for development
 
 A second session runs what `cargo build` last produced, so you can test a

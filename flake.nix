@@ -297,6 +297,58 @@
               };
             };
 
+            # The accessibility defaults for the whole machine, written to
+            # /etc/sicompass/accessibility.json. The login screen and sicompass
+            # both read that file, and both use it only for what the user has
+            # not chosen themselves: the greeter's own choices are kept in
+            # /var/lib/loginsicompass/settings.json, and each user's in their
+            # ~/.config/sicompass/settings.json. null means "no opinion", so
+            # each program keeps its own default. The greeter's differs from
+            # the app's for screenReader: it starts Orca on first use.
+            accessibility = {
+              screenReader = lib.mkOption {
+                type = lib.types.nullOr lib.types.bool;
+                default = null;
+                example = true;
+                description = ''
+                  Whether Orca starts at the login screen and in the
+                  desicompass session. Unset, the login screen starts it until
+                  someone turns it off there, and the session does not.
+                '';
+              };
+
+              fontScale = lib.mkOption {
+                type = lib.types.nullOr (lib.types.enum [
+                  "1.00" "1.25" "1.50" "1.75" "2.00" "2.25" "2.50"
+                ]);
+                default = null;
+                example = "2.00";
+                description = "The interface scale.";
+              };
+
+              colorScheme = lib.mkOption {
+                type = lib.types.nullOr (lib.types.enum [ "dark" "light" ]);
+                default = null;
+                description = "The color scheme.";
+              };
+
+              language = lib.mkOption {
+                type = lib.types.nullOr (lib.types.enum [ "en-US" "nl-BE" "fr-BE" "de-BE" ]);
+                default = null;
+                example = "nl-BE";
+                description = "The interface language, which is also the screen reader's voice.";
+              };
+
+              shoulderSurfingProtection = lib.mkOption {
+                type = lib.types.nullOr lib.types.bool;
+                default = null;
+                description = ''
+                  Keep the screen blank while the screen reader goes on
+                  working.
+                '';
+              };
+            };
+
             xkbLayout = lib.mkOption {
               type = lib.types.nullOr lib.types.str;
               default = null;
@@ -366,6 +418,7 @@
                 exec ${loginsicompassPkg}/bin/loginsicompass \
                   --state-dir /var/lib/loginsicompass \
                   --sessions-dir /run/current-system/sw/share/wayland-sessions \
+                  --screen-reader-command ${config.services.orca.package}/bin/orca \
                   --suspend-command  '${pkgs.systemd}/bin/systemctl suspend' \
                   --reboot-command   '${pkgs.systemd}/bin/systemctl reboot' \
                   --poweroff-command '${pkgs.systemd}/bin/systemctl poweroff'
@@ -487,6 +540,16 @@
               # service. Without it the app renders but is silent to Orca.
               services.gnome.at-spi2-core.enable = true;
 
+              # Orca and the speech-dispatcher it speaks through. Both the login
+              # screen and the session start it themselves (the greeter by its
+              # store path, sicompass from PATH), so nothing autostarts here.
+              services.orca.enable = lib.mkDefault true;
+
+              # The shared accessibility defaults. See the `accessibility`
+              # options for who reads this and what wins over it.
+              environment.etc."sicompass/accessibility.json".text = builtins.toJSON
+                (lib.filterAttrs (_: v: v != null) cfg.accessibility);
+
               environment.systemPackages = [
                 desicompassPkg
                 sicompassPkg
@@ -517,16 +580,14 @@
             (lib.mkIf cfg.greeter.enable {
               # The greeter user nixpkgs' greetd module creates has no home
               # (`/var/empty`), so everything the greeter writes needs
-              # somewhere to be: the remembered user and session, plus
+              # somewhere to be: the remembered user and session, the
+              # accessibility choices made on the login screen, plus
               # sicompass-ui's config, state and cache via the XDG_* variables
               # in greeterScript.
               systemd.tmpfiles.rules = [
                 "d /var/lib/loginsicompass     0755 greeter greeter - -"
                 "d /var/lib/loginsicompass/xdg 0700 greeter greeter - -"
               ];
-
-              # Orca, so the accessibility toggle has a screen reader to start.
-              environment.systemPackages = [ pkgs.orca ];
 
               services.greetd = {
                 enable = true;
