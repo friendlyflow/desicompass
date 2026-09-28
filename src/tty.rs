@@ -409,7 +409,8 @@ fn handle_input(state: &mut State, event: InputEvent<LibinputInputBackend>) {
             return;
         };
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
-        let pressed = event.state() == smithay::backend::input::KeyState::Pressed;
+        let key_state = event.state();
+        let pressed = key_state == smithay::backend::input::KeyState::Pressed;
         keyboard.input(
             state,
             event.key_code(),
@@ -417,6 +418,16 @@ fn handle_input(state: &mut State, event: InputEvent<LibinputInputBackend>) {
             serial,
             event.time(),
             |app_state, modifiers, keysym| {
+                // The screen reader first, as in cosmic-comp: it hears every
+                // key (a key press is what makes Orca stop talking), and keeps
+                // its own commands from the client.
+                if app_state
+                    .a11y_keyboard
+                    .filter(modifiers, &keysym, key_state)
+                {
+                    return FilterResult::Intercept(());
+                }
+
                 // Diagnostics for chords only — never for ordinary typing.
                 //
                 // A TTY has no debugger and no scrollback, so when a chord

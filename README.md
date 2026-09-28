@@ -62,6 +62,14 @@ revisions this flake pins. To build them from your own checkouts instead, set
 `services.desicompass.package`, `services.desicompass.sicompassPackage` and
 `services.desicompass.greeter.package`.
 
+## Screen readers and the keyboard
+
+desicompass hands the keyboard to Orca the way GNOME and COSMIC do, through the
+`org.freedesktop.a11y.KeyboardMonitor` D-Bus interface on the session bus. Orca
+hears every key, so a key press stops what it is saying, and its own commands
+(the Orca key, typing echo, Ctrl to stop speech) work. Only Orca may use the
+interface. The code is `src/a11y_keyboard_monitor.rs`, ported from cosmic-comp.
+
 ## Accessibility defaults
 
 The login screen and Sicompass share one set of accessibility defaults:

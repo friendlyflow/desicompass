@@ -93,6 +93,9 @@ pub struct State {
     // ---- Input ----
     pub seat_state: SeatState<State>,
     pub seat: Seat<State>,
+    /// Hands the keyboard to a screen reader (Orca) over D-Bus. Consulted
+    /// first by both backends' keyboard filters.
+    pub a11y_keyboard: crate::a11y_keyboard_monitor::A11yKeyboardMonitor,
 
     // ---- Desktop ----
     /// Cleared by the quit binding; the main loop checks it each pass.
@@ -157,6 +160,7 @@ impl State {
             data_device_state,
             seat_state,
             seat,
+            a11y_keyboard: crate::a11y_keyboard_monitor::A11yKeyboardMonitor::start(),
             running: true,
             space,
             popups: PopupManager::default(),

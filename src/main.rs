@@ -26,6 +26,8 @@
 //! | `Super+Shift+E` | end the session (press twice, on separate presses) |
 
 #[cfg(target_os = "linux")]
+mod a11y_keyboard_monitor;
+#[cfg(target_os = "linux")]
 mod focus;
 #[cfg(target_os = "linux")]
 mod gpu;
@@ -326,7 +328,8 @@ mod linux {
                     state.relayout();
                 }
                 WinitEvent::Input(InputEvent::Keyboard { event }) => {
-                    let pressed = event.state() == KeyState::Pressed;
+                    let key_state = event.state();
+                    let pressed = key_state == KeyState::Pressed;
                     keyboard.input(
                         &mut state,
                         event.key_code(),
@@ -334,6 +337,13 @@ mod linux {
                         0.into(),
                         event.time(),
                         |app_state, modifiers, keysym| {
+                            // The screen reader first; see the TTY backend.
+                            if app_state
+                                .a11y_keyboard
+                                .filter(modifiers, &keysym, key_state)
+                            {
+                                return FilterResult::Intercept(());
+                            }
                             // The *Latin* sym for the physical key, not the
                             // modified one: Shift would turn `j` into `J`,
                             // and a non-Latin layout into something else
