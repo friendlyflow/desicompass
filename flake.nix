@@ -595,6 +595,17 @@
                   # greetd captures neither stdout nor stderr of what it
                   # starts. `journalctl -t loginsicompass -b` reads this.
                   "${pkgs.systemd}/bin/systemd-cat --identifier=loginsicompass"
+                  # Set here, before the bus, and not only in greeterScript:
+                  # the services the bus activates (dconf, the at-spi bus
+                  # launcher) inherit the daemon's environment, not the
+                  # greeter's. Without this they write under the greeter
+                  # user's home, /var/empty, and every GSettings write Orca
+                  # and at-spi make fails.
+                  "${pkgs.coreutils}/bin/env"
+                  "XDG_CONFIG_HOME=/var/lib/loginsicompass/xdg/config"
+                  "XDG_STATE_HOME=/var/lib/loginsicompass/xdg/state"
+                  "XDG_DATA_HOME=/var/lib/loginsicompass/xdg/data"
+                  "XDG_CACHE_HOME=/var/lib/loginsicompass/xdg/cache"
                   # Load-bearing for the same reason as on the session's Exec
                   # line: without a session bus the greeter is mute to Orca.
                   "${pkgs.dbus}/bin/dbus-run-session"
