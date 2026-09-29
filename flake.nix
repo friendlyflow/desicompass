@@ -36,9 +36,8 @@
       # Single source of truth for the version.
       version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
 
-      # What the compositor needs on LD_LIBRARY_PATH at runtime, shared by the
-      # package wrapper and the dev session so the two cannot drift. Dispatch
-      # libraries only (libGL is libglvnd, libgbm dlopens a backend), never
+      # What the compositor needs on LD_LIBRARY_PATH at runtime, set by the
+      # package wrapper. Dispatch libraries only (libGL is libglvnd, libgbm dlopens a backend), never
       # nixpkgs' `mesa`: see mesaVendor.
       runtimeLibs = pkgs: with pkgs; [
         libGL
@@ -222,9 +221,10 @@
       #
       #   services.desicompass.dev.enable = true;
       #     For development: adds "Desicompass (dev)" next to "Desicompass",
-      #     running whatever `cargo build` last left in local checkouts. A
-      #     broken build costs a login attempt, and the stable session is one
-      #     entry away.
+      #     running a second pair of packages, typically built from local
+      #     working trees while the stable entry runs a release. A broken
+      #     build costs a login attempt, and the stable session is one entry
+      #     away.
       nixosModules.default = { config, lib, pkgs, ... }:
         let
           cfg = config.services.desicompass;
@@ -266,33 +266,34 @@
               description = "The loginsicompass greeter package.";
             };
 
+            # The dev session's own pair of packages. Built by Nix like the
+            # stable ones, so a change reaches it with `nixos-rebuild switch`.
+            # Read through `git+file://`, a working tree's uncommitted edits
+            # to tracked files are included and untracked files are not.
             dev = {
               enable = lib.mkEnableOption ''
-                a second session, "Desicompass (dev)", that runs the compositor
-                and sicompass from local checkouts as `cargo build` left them.
-                Either one that has not been built falls back to its package'';
+                a second session, "Desicompass (dev)", that runs `dev.package`
+                and `dev.sicompassPackage` beside the stable session'';
 
-              checkout = lib.mkOption {
-                # A string, not a path: a path would be copied into the store at
-                # evaluation, and the whole point is reading the checkout at
-                # login.
-                type = lib.types.strMatching "/.*";
-                example = "/home/alice/src/friendlyflow";
+              package = lib.mkOption {
+                type = lib.types.package;
+                default = self.packages.${system}.desicompass;
+                defaultText = lib.literalExpression "desicompass.packages.\${system}.desicompass";
                 description = ''
-                  Absolute path of the directory holding the `desicompass` and
-                  `sicompass` checkouts side by side.
+                  The compositor the dev session runs. The default is the
+                  desicompass this module was imported from, so importing it
+                  from a working tree makes that tree the dev compositor.
                 '';
               };
 
-              profile = lib.mkOption {
-                type = lib.types.str;
-                default = "debug";
-                example = "release";
+              sicompassPackage = lib.mkOption {
+                type = lib.types.package;
+                example = lib.literalExpression
+                  ''(builtins.getFlake "git+file:///home/alice/src/friendlyflow/sicompass").packages.''${system}.default'';
                 description = ''
-                  The cargo profile directory under `target/` to run from.
-                  `debug` is what `cargo build`, `cargo test` and `cargo run`
-                  already produce, and keeps debug assertions and overflow
-                  checks on.
+                  The sicompass the dev session runs. No default, because the
+                  one this flake's lock file pins is the release the stable
+                  session already has.
                 '';
               };
             };
@@ -393,9 +394,33 @@
               # quoting at all.
               xkbArgs = lib.optionalString (cfg.xkbLayout != null) " --xkb-layout ${cfg.xkbLayout}";
 
-              startupScript = pkgs.writeShellScript "desicompass-startup" ''
-                exec ${sicompassPkg}/bin/sicompass --session
-              '';
+              # Both entries, the stable one and the dev one, are this with a
+              # different pair of packages. `env` goes through env(1), which
+              # keeps the Exec line free of quoting.
+              mkSessionPackage = { id, name, comment, compositor, app, env ? [ ] }:
+                let
+                  startupScript = pkgs.writeShellScript "${id}-startup" ''
+                    exec ${app}/bin/sicompass --session
+                  '';
+                  envPrefix = lib.optionalString (env != [ ])
+                    "${pkgs.coreutils}/bin/env ${lib.concatStringsSep " " env} ";
+                in
+                pkgs.writeTextDir "share/wayland-sessions/${id}.desktop" ''
+                  [Desktop Entry]
+                  Name=${name}
+                  Comment=${comment}
+                  Exec=${pkgs.systemd}/bin/systemd-cat --identifier=${id} ${pkgs.dbus}/bin/dbus-run-session ${envPrefix}${compositor}/bin/desicompass --backend tty${xkbArgs} --startup-cmd ${startupScript}
+                  Type=Application
+                  DesktopNames=Desicompass
+                '' // {
+                  # NixOS requires anything in sessionPackages to declare the
+                  # sessions it provides, matching the .desktop file name. Set
+                  # at the top level, not under `passthru`: the option type
+                  # tests `p ? providedSessions` directly, and `passthru` is
+                  # only lifted by mkDerivation, not by `//` on a built
+                  # derivation.
+                  providedSessions = [ id ];
+                };
 
               # What the compositor starts when it is the *greeter*, as a
               # script for the same reason: it carries an environment as well
@@ -424,88 +449,25 @@
                   --poweroff-command '${pkgs.systemd}/bin/systemctl poweroff'
               '';
 
-              sessionPackage = pkgs.writeTextDir
- "share/wayland-sessions/desicompass.desktop" ''
-                [Desktop Entry]
-                Name=Desicompass
-                Comment=Use your whole computer from the keyboard, with no mouse needed
-                Exec=${pkgs.systemd}/bin/systemd-cat --identifier=desicompass ${pkgs.dbus}/bin/dbus-run-session ${desicompassPkg}/bin/desicompass --backend tty${xkbArgs} --startup-cmd ${startupScript}
-                Type=Application
-                DesktopNames=Desicompass
-              '' // {
-                # NixOS requires anything in sessionPackages to declare the
-                # sessions it provides, matching the .desktop file name. Set at
-                # the top level, not under `passthru`: the option type tests
-                # `p ? providedSessions` directly, and `passthru` is only lifted
-                # by mkDerivation, not by `//` on a built derivation.
-                providedSessions = [ "desicompass" ];
+              sessionPackage = mkSessionPackage {
+                id = "desicompass";
+                name = "Desicompass";
+                comment = "Use your whole computer from the keyboard, with no mouse needed";
+                compositor = desicompassPkg;
+                app = sicompassPkg;
               };
 
-              # The dev session: the binaries in the checkouts, for testing the
-              # TTY backend and the login path (greetd, the session bus, the
-              # journal) without a nixos-rebuild per change. Each binary falls
-              # back to its package when the checkout has not built it, so the
-              # one session serves work on the app, the compositor, or both.
-              #
-              # A cargo-built binary has a RUNPATH into the dev shell's store
-              # for what it links, but nothing for what it dlopens, and none of
-              # the package wrapper's environment. The scripts put that back.
-              # The libraries come from this flake's nixpkgs, which is the one
-              # the desicompass dev shell builds against, so the compositor gets
-              # the very store paths it was built with.
-              devPkgs = nixpkgsFor.${system};
-              devBinary = repo:
-                lib.escapeShellArg "${cfg.dev.checkout}/${repo}/target/${cfg.dev.profile}/${repo}";
-
-              devStartupScript = pkgs.writeShellScript "desicompass-dev-startup" ''
-                app=${devBinary "sicompass"}
-                if [ -x "$app" ]; then
-                  echo "desicompass-dev: sicompass from $app"
-                  # What sicompass's package wrapper sets, less sdl3, which a
-                  # cargo build reaches through its RUNPATH.
-                  export PATH=${lib.makeBinPath [ devPkgs.xvfb-run ]}''${PATH:+:$PATH}
-                  export LD_LIBRARY_PATH=${lib.makeLibraryPath (with devPkgs; [
-                    vulkan-loader
-                    libxkbcommon
-                    wayland
-                  ])}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-                  exec "$app" --session
-                fi
-                echo "desicompass-dev: no $app, running the packaged sicompass"
-                exec ${sicompassPkg}/bin/sicompass --session
-              '';
-
-              devSessionScript = pkgs.writeShellScript "desicompass-dev-session" ''
-                # A panic is the likeliest way a dev build ends, and without
-                # this the journal gets its message but not where it happened.
-                export RUST_BACKTRACE=1
-
-                compositor=${devBinary "desicompass"}
-                if [ -x "$compositor" ]; then
-                  echo "desicompass-dev: desicompass from $compositor"
-                  export LD_LIBRARY_PATH=${lib.makeLibraryPath (runtimeLibs devPkgs)}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-                  ${lib.concatStringsSep "\n  " (lib.mapAttrsToList
-                    (name: value: "export ${name}=\"\${${name}-${value}}\"") mesaVendor)}
-                else
-                  echo "desicompass-dev: no $compositor, running the packaged desicompass"
-                  compositor=${desicompassPkg}/bin/desicompass
-                fi
-                exec "$compositor" --backend tty${xkbArgs} --startup-cmd ${devStartupScript}
-              '';
-
-              # Its own journal identifier, so `journalctl -t desicompass-dev`
-              # holds only dev runs. The same systemd-cat and dbus-run-session
-              # as the stable entry, for the same reasons.
-              devSessionPackage = pkgs.writeTextDir
- "share/wayland-sessions/desicompass-dev.desktop" ''
-                [Desktop Entry]
-                Name=Desicompass (dev)
-                Comment=Desicompass and Sicompass as built in ${cfg.dev.checkout}
-                Exec=${pkgs.systemd}/bin/systemd-cat --identifier=desicompass-dev ${pkgs.dbus}/bin/dbus-run-session ${devSessionScript}
-                Type=Application
-                DesktopNames=Desicompass
-              '' // {
-                providedSessions = [ "desicompass-dev" ];
+              # The dev session, with its own journal identifier so
+              # `journalctl -t desicompass-dev` holds only dev runs, and a
+              # backtrace on panic, the likeliest way a dev build ends. The
+              # compositor passes its environment on to sicompass.
+              devSessionPackage = mkSessionPackage {
+                id = "desicompass-dev";
+                name = "Desicompass (dev)";
+                comment = "Desicompass and Sicompass as the dev packages build them";
+                compositor = cfg.dev.package;
+                app = cfg.dev.sicompassPackage;
+                env = [ "RUST_BACKTRACE=1" ];
               };
             in
             lib.mkMerge [

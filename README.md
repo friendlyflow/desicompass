@@ -95,22 +95,37 @@ On another distribution, write that file by hand. The login screen's
 
 ## A session for development
 
-A second session runs what `cargo build` last produced, so you can test a
-change on the real display and through the real login without rebuilding the
-system:
+A second session runs a second pair of packages next to the stable one. The
+usual setup is the last release as "Desicompass" and your working trees as
+"Desicompass (dev)", both built by `nixos-rebuild switch`:
 
 ```nix
-services.desicompass.dev.enable = true;
-services.desicompass.dev.checkout = "/home/alice/src/friendlyflow";
+let
+  release = builtins.getFlake "github:friendlyflow/desicompass/v0.2.0";
+  desicompass = builtins.getFlake "git+file:///home/alice/src/friendlyflow/desicompass";
+  sicompass = builtins.getFlake "git+file:///home/alice/src/friendlyflow/sicompass";
+  system = "x86_64-linux";
+in
+{
+  imports = [ desicompass.nixosModules.default ];
+
+  services.desicompass.package = release.packages.${system}.desicompass;
+  services.desicompass.sicompassPackage = release.inputs.sicompass.packages.${system}.default;
+  services.desicompass.greeter.package = release.inputs.loginsicompass.packages.${system}.default;
+
+  services.desicompass.dev.enable = true;
+  services.desicompass.dev.sicompassPackage = sicompass.packages.${system}.default;
+}
 ```
 
-`checkout` is the directory that holds the `desicompass` and `sicompass`
-checkouts side by side. The login screen then offers "Desicompass (dev)" next to
-"Desicompass". It runs `target/debug/desicompass` and `target/debug/sicompass`
-from those checkouts (set `dev.profile = "release"` for release builds), and
-falls back to the installed version of either one you have not built. If the
-dev build fails, you are back at the login screen and "Desicompass" still works. Its output goes to the journal:
-`journalctl -t desicompass-dev -b`.
+`dev.package` defaults to the desicompass the module was imported from, here the
+working tree. Use `git+file://` for a working tree, never a plain path. A plain
+path copies `target/` into the store. `git+file://` includes uncommitted edits
+to files git tracks, but not files git does not track yet.
+
+The login screen then offers "Desicompass (dev)" next to "Desicompass". If the
+dev build misbehaves, you are back at the login screen and "Desicompass" still
+works. Its output goes to the journal: `journalctl -t desicompass-dev -b`.
 
 ## Trying it without logging out
 
