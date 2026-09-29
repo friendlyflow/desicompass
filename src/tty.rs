@@ -75,6 +75,7 @@ pub struct TtyArgs {
     /// The `--xkb-*` flags, still to be resolved against the system.
     pub xkb: crate::xkb::XkbNames,
     pub terminal: String,
+    pub superkey_cmd: Option<String>,
 }
 
 /// The DRM side, owned by [`crate::gpu::Gpu::Tty`].
@@ -203,8 +204,10 @@ pub fn run(args: TtyArgs) -> Result<(), Box<dyn std::error::Error>> {
     let mut state = State::new(
         &dh,
         event_loop.get_signal(),
+        event_loop.handle(),
         output.clone(),
         Gpu::Tty(Box::new(tty)),
+        args.superkey_cmd.clone(),
     );
 
     // ---- Keyboard -------------------------------------------------------
@@ -339,6 +342,9 @@ pub fn run(args: TtyArgs) -> Result<(), Box<dyn std::error::Error>> {
             state.running = false;
         }
         render(&mut state);
+        state.send_superkey_frame_if_unmapped();
+        state.maintain_superkey();
+        state.reap_children();
         state.space.refresh();
         state.popups.cleanup();
         state.display_handle.flush_clients()?;
@@ -418,6 +424,12 @@ fn handle_input(state: &mut State, event: InputEvent<LibinputInputBackend>) {
             serial,
             event.time(),
             |app_state, modifiers, keysym| {
+                // Watched before anything can intercept the key, so a chord
+                // the screen reader or a binding swallows still counts as
+                // "something besides Super was pressed". It never takes the
+                // key: Super's press and release still reach the client.
+                crate::state::observe_super_tap(app_state, &keysym, modifiers, pressed);
+
                 // The screen reader first, as in cosmic-comp: it hears every
                 // key (a key press is what makes Orca stop talking), and keeps
                 // its own commands from the client.

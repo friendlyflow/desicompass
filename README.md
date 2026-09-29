@@ -27,10 +27,41 @@ non-US layouts the right Alt is AltGr, which you need to type characters like
 | `Super+Return` | Open a terminal (`--terminal`, `foot` by default) |
 | `Super+Shift+Q` | Close the focused window |
 | `Super+Shift+E` | End the session (press it twice) |
+| `Super`, tapped on its own | Open or close the superkey |
+| `Super+W` | Open the superkey on the open windows |
+| `Super+C` | Open the superkey on the controls (suspend, restart, shut down, log out) |
+| `Super+S` | Open the superkey on the accessibility settings |
 
 The keyboard layout comes from systemd-localed, which is where your OS installer
 put it. `--xkb-layout`, `--xkb-variant`, `--xkb-model` and `--xkb-options`
 override it.
+
+## The superkey
+
+The superkey is a screen of its own, full screen over the windows. It is a list you
+search by typing, the way Sicompass searches, and it opens straight into search.
+From the top it holds:
+
+- **Windows**, most recently used first. `Super+W` then Enter goes back to the
+  window you used before this one.
+- **Controls**: suspend, restart, shut down and log out.
+- **Settings**: the screen reader, the font scale, the colour scheme, the
+  language and shoulder-surfing protection.
+- every installed program, by name.
+
+Enter does what the row is for: it focuses a window, starts a program, runs a
+control or changes a setting. On a section it opens the section, and you go on
+typing inside it. Escape closes the superkey and gives the keyboard back to the
+window that had it.
+
+It is its own program, `desicompass-superkey` in `lib/lib_superkey`, drawn by
+the same renderer as Sicompass, and part of desicompass: there is nothing to
+turn on. desicompass starts it once and shows and hides it, so it opens at
+once. The Nix package brings its own, and a `cargo build --workspace` puts it
+next to the compositor, where desicompass finds it. The login screen runs
+without it. How the two
+talk is in [docs/superkey.md](docs/superkey.md). To try it on its own, run
+`cargo run -p desicompass-superkey -- --standalone`.
 
 ## Install on NixOS
 
@@ -57,9 +88,10 @@ The flake has a NixOS module. Turn it on in two steps, in this order:
 
 The session's output goes to the journal: `journalctl -t desicompass -b`.
 
-The module takes the compositor, Sicompass and the login screen from the
-revisions this flake pins. To build them from your own checkouts instead, set
-`services.desicompass.package`, `services.desicompass.sicompassPackage` and
+The module takes the compositor (with its superkey), Sicompass and the login
+screen from the revisions this flake pins. To build them from your own checkouts
+instead, set `services.desicompass.package`,
+`services.desicompass.sicompassPackage` and
 `services.desicompass.greeter.package`.
 
 ## Screen readers and the keyboard
@@ -85,10 +117,25 @@ services.desicompass.accessibility = {
 ```
 
 Every option is optional. They are written to `/etc/sicompass/accessibility.json`,
-and they only fill in what nobody has chosen. A choice made on the login screen,
-or in a user's own settings, wins. Left unset, the login screen starts Orca the
-first time it runs, until someone turns it off there, and the session starts it
-only when the user ticks screen reader in Settings.
+and they only fill in what nobody has chosen. Nothing ever writes that file
+while the machine runs.
+
+A choice made at the login screen, in the superkey's Settings or in Sicompass's
+own goes to `/var/lib/sicompass/accessibility.json`. That is one object for the
+whole machine, shared both ways: what you choose at the login screen is what the
+session starts with, and what you choose in a session is what the login screen
+shows next time. Every program that shows these settings follows a change made
+in another within a quarter of a second. The module creates the directory,
+writable by a `sicompass-a11y` group that holds the login screen and every
+normal user (a user added to the machine has it from their next login).
+Sicompass on another desktop keeps these settings in its own `settings.json`, as
+before.
+
+A value is taken from that shared file first, then `/etc`, then the program's
+own default.
+
+Left unset, the login screen starts Orca the first time it runs, until someone
+turns it off there. Sicompass is the one that starts Orca in the session.
 
 On another distribution, write that file by hand. The login screen's
 `docs/greeter.md` lists its keys.
@@ -118,8 +165,8 @@ in
 }
 ```
 
-`dev.package` defaults to the desicompass the module was imported from, here the
-working tree. Use `git+file://` for a working tree, never a plain path. A plain
+`dev.package` defaults to the desicompass the module was imported from, here
+the working tree, superkey included. Use `git+file://` for a working tree, never a plain path. A plain
 path copies `target/` into the store. `git+file://` includes uncommitted edits
 to files git tracks, but not files git does not track yet.
 
@@ -131,6 +178,7 @@ works. Its output goes to the journal: `journalctl -t desicompass-dev -b`.
 
 ```bash
 nix develop
+cargo build --workspace
 cargo run -- --backend auto --startup-cmd foot
 ```
 
@@ -147,6 +195,11 @@ nix develop                     # optional, brings the whole toolchain
 cargo build --release
 cargo test
 ```
+
+The repository is a Cargo workspace: the compositor at the root, the superkey in
+`lib/lib_superkey`, and the protocol between the two in
+`lib/lib_superkey_protocol`. `cargo test` covers all three. `nix build` builds
+the compositor and `nix build .#desicompass-superkey` the superkey.
 
 Every build has both backends, the nested one and the one that takes over a real
 display (DRM/KMS, libinput, libseat), so it needs those libraries. The dev shell

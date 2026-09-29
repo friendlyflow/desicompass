@@ -29,6 +29,7 @@
 //! turns `j` into `J`, and a non-Latin layout turns it into something else
 //! entirely. The letters below are therefore always lowercase.
 
+use desicompass_superkey_protocol::Section;
 use smithay::input::keyboard::keysyms;
 
 /// The modifier state a binding is evaluated against.
@@ -65,6 +66,10 @@ pub enum BindingAction {
     /// Request to end the session. Confirmed by pressing it twice; see
     /// `State::request_quit`.
     Quit,
+    /// Open the superkey on one of its sections (Super+W, Super+C, Super+S).
+    /// `Section::Root` is never bound to a chord: it is the bare Super tap,
+    /// which [`SuperTap`] detects.
+    Superkey(Section),
     /// No binding matched; the key belongs to the focused client.
     PassThrough,
 }
@@ -96,6 +101,12 @@ pub fn evaluate(mods: Mods, keysym: u32) -> BindingAction {
         (keysyms::KEY_m, false) => BindingAction::ToggleLayout,
         (keysyms::KEY_Return, false) => BindingAction::Spawn,
 
+        // The superkey's sections. Unshifted, and none of them destructive:
+        // the worst a stray press does is open a list Escape closes.
+        (keysyms::KEY_w, false) => BindingAction::Superkey(Section::Windows),
+        (keysyms::KEY_c, false) => BindingAction::Superkey(Section::Controls),
+        (keysyms::KEY_s, false) => BindingAction::Superkey(Section::Settings),
+
         // Both destructive actions need Shift. Closing a window or ending the
         // session on a single unshifted chord is too easy to hit by accident
         // on a keyboard-only shell, where there is no pointer to undo with.
@@ -103,6 +114,45 @@ pub fn evaluate(mods: Mods, keysym: u32) -> BindingAction {
         (keysyms::KEY_e, true) => BindingAction::Quit,
 
         _ => BindingAction::PassThrough,
+    }
+}
+
+/// Detects a bare Super tap: Super pressed and released with nothing in
+/// between.
+///
+/// That is the superkey's key, the way the Windows key opens the start menu.
+/// It cannot be a row in [`evaluate`], which sees one key press at a time and
+/// has no idea whether Super is on its way down or up, or whether a chord
+/// happened while it was held. So it is a little state machine, fed every key
+/// event, press and release, before anything else looks at it.
+///
+/// Super pressed with Ctrl, Alt or Shift already held does not arm it (that is
+/// the start of some other chord), and any other key pressed while Super is
+/// down disarms it, bound or not: Super+J is a focus motion, not a tap
+/// followed by J.
+#[derive(Debug, Default)]
+pub struct SuperTap {
+    armed: bool,
+}
+
+impl SuperTap {
+    /// Feed one key event. `keysym` is the raw sym of the physical key, and
+    /// `other_mods` whether Ctrl, Alt or Shift is held. Returns true exactly
+    /// when this event completes a tap.
+    pub fn observe(&mut self, keysym: u32, pressed: bool, other_mods: bool) -> bool {
+        let is_super = keysym == keysyms::KEY_Super_L || keysym == keysyms::KEY_Super_R;
+        match (is_super, pressed) {
+            (true, true) => {
+                self.armed = !other_mods;
+                false
+            }
+            (true, false) => std::mem::take(&mut self.armed),
+            (false, true) => {
+                self.armed = false;
+                false
+            }
+            (false, false) => false,
+        }
     }
 }
 
@@ -349,5 +399,82 @@ mod tests {
             evaluate(sup_shift(), keysyms::KEY_J),
             BindingAction::PassThrough
         );
+    }
+    #[test]
+    fn super_w_c_s_open_the_superkey_sections() {
+        assert_eq!(
+            evaluate(sup(), keysyms::KEY_w),
+            BindingAction::Superkey(Section::Windows)
+        );
+        assert_eq!(
+            evaluate(sup(), keysyms::KEY_c),
+            BindingAction::Superkey(Section::Controls)
+        );
+        assert_eq!(
+            evaluate(sup(), keysyms::KEY_s),
+            BindingAction::Superkey(Section::Settings)
+        );
+        // Shifted, they are not bound: the client keeps them.
+        for sym in [keysyms::KEY_w, keysyms::KEY_c, keysyms::KEY_s] {
+            assert_eq!(evaluate(sup_shift(), sym), BindingAction::PassThrough);
+            assert_eq!(evaluate(Mods::default(), sym), BindingAction::PassThrough);
+        }
+    }
+
+    const SUPER: u32 = keysyms::KEY_Super_L;
+
+    #[test]
+    fn a_bare_super_tap_fires_on_release() {
+        let mut t = SuperTap::default();
+        assert!(!t.observe(SUPER, true, false));
+        assert!(t.observe(SUPER, false, false));
+    }
+
+    #[test]
+    fn the_right_super_key_taps_too() {
+        let mut t = SuperTap::default();
+        t.observe(keysyms::KEY_Super_R, true, false);
+        assert!(t.observe(keysyms::KEY_Super_R, false, false));
+    }
+
+    #[test]
+    fn a_chord_is_not_a_tap() {
+        let mut t = SuperTap::default();
+        t.observe(SUPER, true, false);
+        t.observe(keysyms::KEY_j, true, false);
+        t.observe(keysyms::KEY_j, false, false);
+        assert!(!t.observe(SUPER, false, false));
+    }
+
+    #[test]
+    fn super_with_another_modifier_held_is_not_a_tap() {
+        let mut t = SuperTap::default();
+        t.observe(SUPER, true, true);
+        assert!(!t.observe(SUPER, false, true));
+    }
+
+    #[test]
+    fn a_release_without_a_press_does_not_fire() {
+        let mut t = SuperTap::default();
+        assert!(!t.observe(SUPER, false, false));
+    }
+
+    #[test]
+    fn two_taps_fire_twice() {
+        let mut t = SuperTap::default();
+        for _ in 0..2 {
+            t.observe(SUPER, true, false);
+            assert!(t.observe(SUPER, false, false));
+        }
+    }
+
+    #[test]
+    fn a_key_released_while_super_is_down_does_not_disarm() {
+        // Releasing a key pressed before Super went down is not a chord.
+        let mut t = SuperTap::default();
+        t.observe(keysyms::KEY_a, true, false);
+        t.observe(SUPER, true, false);
+        t.observe(keysyms::KEY_a, false, false);
+        assert!(t.observe(SUPER, false, false));
     }
 }

@@ -34,7 +34,7 @@
       nixpkgsFor = forAllSystems (system: import nixpkgs { inherit system; });
 
       # Single source of truth for the version.
-      version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+      version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
 
       # What the compositor needs on LD_LIBRARY_PATH at runtime, set by the
       # package wrapper. Dispatch libraries only (libGL is libglvnd, libgbm dlopens a backend), never
@@ -93,6 +93,19 @@
               # output, so `gbm.pc` is only found with this listed.
               libgbm
 
+              # The superkey (lib/lib_superkey) is a sicompass-ui client, so it
+              # needs the renderer's stack as well: SDL3 for the window,
+              # freetype and libwebp for text and images, the Vulkan loader,
+              # and AT-SPI over D-Bus for the screen reader. The same list as
+              # the desicompass-superkey package's buildInputs.
+              sdl3
+              freetype
+              libwebp
+              vulkan-loader
+              vulkan-headers
+              at-spi2-core
+              dbus
+
               # Test clients, cheapest first: wayland-info dumps the registry
               # so you can see which globals are advertised, foot is a shm-only
               # terminal that needs no GPU import, and vkcube is the smallest
@@ -105,15 +118,19 @@
 
             shellHook = with pkgs; ''
               export RUST_SRC_PATH="${rustc}/lib/rustlib/src/rust/library";
-              export PKG_CONFIG_PATH="${libxkbcommon.dev}/lib/pkgconfig:$PKG_CONFIG_PATH";
-              export LIBRARY_PATH="${libxkbcommon}/lib:${wayland}/lib:${libGL}/lib:${libinput}/lib:${seatd}/lib:${udev}/lib:${libgbm}/lib:$LIBRARY_PATH";
+              export PKG_CONFIG_PATH="${sdl3}/lib/pkgconfig:${libxkbcommon.dev}/lib/pkgconfig:$PKG_CONFIG_PATH";
+              export LIBRARY_PATH="${sdl3}/lib:${libxkbcommon}/lib:${wayland}/lib:${libGL}/lib:${libinput}/lib:${seatd}/lib:${udev}/lib:${libgbm}/lib:$LIBRARY_PATH";
+              export VULKAN_SDK="${vulkan-headers}";
 
               # smithay's backend_egl dlopens libEGL.so.1 and libGLESv2.so.2 by
               # bare name, so the dispatch libraries have to be on the path or
               # the compositor links fine and dies at startup. Store paths only:
               # LD_LIBRARY_PATH outranks every binary's RUNPATH, and a system
               # lib dir here breaks the shell on a distro with an older glibc.
-              export LD_LIBRARY_PATH="${libxkbcommon}/lib:${wayland}/lib:${libGL}/lib:${libinput}/lib:${seatd}/lib:${udev}/lib:${libgbm}/lib";
+              # The superkey adds the Vulkan loader (dlopened by ash, so it is
+              # not in DT_NEEDED), SDL3, freetype and libwebp: the loader and
+              # dispatch side only, never a vendor.
+              export LD_LIBRARY_PATH="${libxkbcommon}/lib:${wayland}/lib:${libGL}/lib:${libinput}/lib:${seatd}/lib:${udev}/lib:${libgbm}/lib:${vulkan-loader}/lib:${sdl3}/lib:${freetype}/lib:${libwebp}/lib";
 
               # The GL/EGL/GBM *vendor*, as opposed to the dispatch libraries
               # above. On NixOS it must be /run/opengl-driver, never nixpkgs'
@@ -151,13 +168,16 @@
       packages = forAllSystems (system:
         let
           pkgs = nixpkgsFor.${system};
+          lib = pkgs.lib;
           craneLib = crane.mkLib pkgs;
           commonArgs = {
             inherit version;
             pname = "desicompass";
             src = craneLib.cleanCargoSource ./.;
             strictDeps = true;
-            cargoExtraArgs = "--locked";
+            # Only the compositor. The workspace's default members include the
+            # superkey, which links SDL3 and Vulkan; the compositor must not.
+            cargoExtraArgs = "--locked -p desicompass";
             # The suite runs in ci.yml and locally.
             doCheck = false;
             nativeBuildInputs = with pkgs; [ pkg-config ];
@@ -184,9 +204,15 @@
             #
             # `--set-default` rather than `--set`, so on a non-NixOS host, or
             # for a deliberate driver test, the environment still wins.
+            #
+            # The superkey is part of desicompass: DESICOMPASS_SUPERKEY points
+            # the compositor at this flake's own build of it, so every session
+            # has one with nothing to configure. A default, so the login
+            # screen's empty value (no superkey before signing in) still wins.
             postInstall = ''
               wrapProgram $out/bin/desicompass \
                 --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath (runtimeLibs pkgs)}" \
+                --set-default DESICOMPASS_SUPERKEY ${desicompass-superkey}/bin/desicompass-superkey \
                 ${pkgs.lib.concatStringsSep " \\\n  " (pkgs.lib.mapAttrsToList
                   (name: value: "--set-default ${name} ${value}") mesaVendor)}
             '';
@@ -200,6 +226,84 @@
             };
           });
           default = desicompass;
+
+          # The superkey, a sicompass-ui client like loginsicompass, and built
+          # the same way: see that flake for the reasoning behind each input
+          # and each line of the wrapper.
+          desicompass-superkey =
+            let
+              superkeyArgs = {
+                inherit version;
+                pname = "desicompass-superkey";
+                # The locale bundles are compiled in with include_str!, and the
+                # font licenses are installed below and read by the tests.
+                src = lib.fileset.toSource {
+                  root = ./.;
+                  fileset = lib.fileset.unions [
+                    (craneLib.fileset.commonCargoSources ./.)
+                    ./lib/lib_superkey/locales
+                    ./lib/lib_superkey/fonts
+                    ./THIRD-PARTY-LICENSES.html
+                  ];
+                };
+                strictDeps = true;
+                cargoExtraArgs = "--locked -p desicompass-superkey";
+                # tests/superkey_ui.rs drives the real renderer; run it in the
+                # dev shell.
+                doCheck = false;
+                nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
+                buildInputs = with pkgs; [
+                  sdl3
+                  freetype
+                  libwebp
+                  libxkbcommon
+                  wayland
+                  at-spi2-core
+                  dbus
+                  libGL
+                  libgbm
+                  libdrm
+                ];
+              };
+            in
+            craneLib.buildPackage (superkeyArgs // {
+              cargoArtifacts = craneLib.buildDepsOnly superkeyArgs;
+              nativeBuildInputs = superkeyArgs.nativeBuildInputs ++ [ pkgs.makeWrapper ];
+
+              # The Vulkan loader and the dispatch libraries on the path, the
+              # vendor from /run/opengl-driver: never nixpkgs' own mesa (see
+              # mesaVendor).
+              postInstall = ''
+                wrapProgram $out/bin/desicompass-superkey \
+                  --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath (with pkgs; [
+                    vulkan-loader
+                    sdl3
+                    libGL
+                    libgbm
+                    libxkbcommon
+                    wayland
+                  ])}" \
+                  ${lib.concatStringsSep " \\\n  " (lib.mapAttrsToList
+                    (name: value: "--set-default ${name} ${value}") mesaVendor)}
+
+                # The fonts are inside the binary (through sicompass-ui), so
+                # their licenses travel with it.
+                install -Dm644 lib/lib_superkey/fonts/LICENSE-DejaVu.txt \
+                  $out/share/doc/desicompass-superkey/LICENSE-DejaVu.txt
+                install -Dm644 lib/lib_superkey/fonts/LICENSE-NotoColorEmoji.txt \
+                  $out/share/doc/desicompass-superkey/LICENSE-NotoColorEmoji.txt
+                install -Dm644 THIRD-PARTY-LICENSES.html \
+                  $out/share/doc/desicompass-superkey/THIRD-PARTY-LICENSES.html
+              '';
+
+              meta = with lib; {
+                description = "The superkey of the desicompass session";
+                homepage = "https://github.com/friendlyflow/desicompass";
+                license = licenses.gpl3Only;
+                mainProgram = "desicompass-superkey";
+                platforms = platforms.linux;
+              };
+            });
         });
 
       # Opt-in NixOS integration. Enabling nothing changes nothing.
@@ -299,13 +403,14 @@
             };
 
             # The accessibility defaults for the whole machine, written to
-            # /etc/sicompass/accessibility.json. The login screen and sicompass
-            # both read that file, and both use it only for what the user has
-            # not chosen themselves: the greeter's own choices are kept in
-            # /var/lib/loginsicompass/settings.json, and each user's in their
-            # ~/.config/sicompass/settings.json. null means "no opinion", so
-            # each program keeps its own default. The greeter's differs from
-            # the app's for screenReader: it starts Orca on first use.
+            # /etc/sicompass/accessibility.json. The login screen, sicompass
+            # and the superkey all read that file, and all use it only for
+            # what nobody has chosen: a choice made in any of them is saved to
+            # /var/lib/sicompass/accessibility.json, the one object they share
+            # both ways (a standalone sicompass keeps its own in settings.json).
+            # null means "no opinion", so each program keeps its own default.
+            # The greeter's differs from the app's for screenReader: it starts
+            # Orca on first use.
             accessibility = {
               screenReader = lib.mkOption {
                 type = lib.types.nullOr lib.types.bool;
@@ -502,6 +607,19 @@
               # service. Without it the app renders but is silent to Orca.
               services.gnome.at-spi2-core.enable = true;
 
+              # The accessibility object the login screen and every session
+              # share, both ways: /var/lib/sicompass/accessibility.json. The
+              # greeter and the users are different accounts, so the directory
+              # belongs to a group of them all. setgid, so every file written in
+              # it stays in that group, and writers replace the file by a
+              # rename, which the directory's write permission allows any
+              # member. A new member has it from their next login.
+              users.groups.sicompass-a11y.members = lib.attrNames
+                (lib.filterAttrs (_: u: u.isNormalUser) config.users.users);
+              systemd.tmpfiles.rules = [
+                "d /var/lib/sicompass 2775 root sicompass-a11y - -"
+              ];
+
               # Orca and the speech-dispatcher it speaks through. Both the login
               # screen and the session start it themselves (the greeter by its
               # store path, sicompass from PATH), so nothing autostarts here.
@@ -551,6 +669,9 @@
                 "d /var/lib/loginsicompass/xdg 0700 greeter greeter - -"
               ];
 
+              # The greeter writes the shared accessibility object too.
+              users.groups.sicompass-a11y.members = [ "greeter" ];
+
               services.greetd = {
                 enable = true;
                 settings.default_session.command = lib.concatStringsSep " " [
@@ -568,6 +689,11 @@
                   "XDG_STATE_HOME=/var/lib/loginsicompass/xdg/state"
                   "XDG_DATA_HOME=/var/lib/loginsicompass/xdg/data"
                   "XDG_CACHE_HOME=/var/lib/loginsicompass/xdg/cache"
+                  # No superkey at the login screen: it would let anyone start
+                  # programs, or end the session, before signing in. A variable
+                  # rather than a flag, so a compositor older than the superkey
+                  # just ignores it.
+                  "DESICOMPASS_SUPERKEY="
                   # Load-bearing for the same reason as on the session's Exec
                   # line: without a session bus the greeter is mute to Orca.
                   "${pkgs.dbus}/bin/dbus-run-session"

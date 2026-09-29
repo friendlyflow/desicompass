@@ -1,0 +1,44 @@
+[package]
+# Shipped as a Nix package beside the compositor, never through crates.io.
+publish = false
+name = "desicompass-superkey"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The superkey of the desicompass session: windows, controls, settings and programs"
+repository.workspace = true
+
+[lib]
+name = "desicompass_superkey"
+path = "src/lib.rs"
+
+[[bin]]
+name = "desicompass-superkey"
+path = "src/main.rs"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+desicompass-superkey-protocol = { path = "../lib_superkey_protocol" }
+
+# The renderer and its element model, exactly as loginsicompass links them:
+# the superkey is a list, searched and read out the way the app's lists are.
+# Not the `sicompass` application crate, which would drag wasmtime, SQLite and
+# a headless Chromium into a superkey.
+#
+# Keep `sicompass-sdk` at the version sicompass-ui requires, or cargo builds
+# two copies. sicompass-ui is not on crates.io: pinned by git, to a `rev`
+# between releases and a `tag` at a release. For local work, uncomment the
+# `[patch]` sections at the bottom of the workspace's root Cargo.toml.
+sicompass-sdk = "0.9.0"
+sicompass-ui = { git = "https://github.com/friendlyflow/sicompass-ui", rev = "5729045cf6f5b48e7c1b5bbecdf71025e5075d32" }
+
+serde_json = "1"
+clap = { version = "4", features = ["derive", "env"] }
+libc = "0.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"
+# Only for the `Keycode`/`Mod` types the key dispatcher takes, in
+# tests/superkey_ui.rs. sicompass-ui links sdl3 already.
+sdl3 = "0.18"

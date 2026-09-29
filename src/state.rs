@@ -19,7 +19,7 @@ use smithay::{
     },
     output::Output,
     reexports::{
-        calloop::LoopSignal,
+        calloop::{LoopHandle, LoopSignal},
         wayland_server::{
             Client, DisplayHandle, Resource,
             backend::{ClientData, ClientId, DisconnectReason},
@@ -51,8 +51,10 @@ use tracing::{debug, error, info, warn};
 
 use crate::focus::{FocusStack, WindowId};
 use crate::gpu::Gpu;
-use crate::keybindings::{self, BindingAction, Mods};
+use crate::keybindings::{self, BindingAction, Mods, SuperTap};
 use crate::layout::{Dir, Tiler};
+use crate::superkey::Superkey;
+use desicompass_superkey_protocol::Section;
 
 // ---------------------------------------------------------------------------
 // ClientState
@@ -77,6 +79,8 @@ pub struct State {
     // ---- Plumbing ----
     pub display_handle: DisplayHandle,
     pub loop_signal: LoopSignal,
+    /// For sources added after startup: the superkey's channel.
+    pub loop_handle: LoopHandle<'static, State>,
     /// Clock origin for frame callback timestamps.
     pub start_time: Instant,
 
@@ -96,6 +100,8 @@ pub struct State {
     /// Hands the keyboard to a screen reader (Orca) over D-Bus. Consulted
     /// first by both backends' keyboard filters.
     pub a11y_keyboard: crate::a11y_keyboard_monitor::A11yKeyboardMonitor,
+    /// Watches for a bare Super tap, the superkey's key.
+    pub super_tap: SuperTap,
 
     // ---- Desktop ----
     /// Cleared by the quit binding; the main loop checks it each pass.
@@ -129,14 +135,23 @@ pub struct State {
     pub spawn_cmd: String,
     /// Our socket name, handed to spawned children.
     pub socket_name: String,
+    /// Programs this compositor started, reaped once they exit. Without this
+    /// every one would stay a zombie until the session ended.
+    pub children: Vec<std::process::Child>,
+
+    // ---- Superkey ----
+    /// The superkey window and the process behind it. See `superkey.rs`.
+    pub superkey: Superkey,
 }
 
 impl State {
     pub fn new(
         display: &DisplayHandle,
         loop_signal: LoopSignal,
+        loop_handle: LoopHandle<'static, State>,
         output: Output,
         backend: Gpu,
+        superkey_cmd: Option<String>,
     ) -> Self {
         let compositor_state = CompositorState::new::<Self>(display);
         let xdg_shell_state = XdgShellState::new::<Self>(display);
@@ -152,6 +167,7 @@ impl State {
         State {
             display_handle: display.clone(),
             loop_signal,
+            loop_handle,
             start_time: Instant::now(),
             compositor_state,
             xdg_shell_state,
@@ -161,6 +177,7 @@ impl State {
             seat_state,
             seat,
             a11y_keyboard: crate::a11y_keyboard_monitor::A11yKeyboardMonitor::start(),
+            super_tap: SuperTap::default(),
             running: true,
             space,
             popups: PopupManager::default(),
@@ -173,6 +190,8 @@ impl State {
             dmabuf_state: DmabufState::new(),
             spawn_cmd: String::new(),
             socket_name: String::new(),
+            children: Vec::new(),
+            superkey: Superkey::new(superkey_cmd),
             output,
         }
     }
@@ -196,8 +215,12 @@ impl State {
             .unwrap_or_else(|| (800, 600).into())
     }
 
-    /// The window owning `surface`, if any.
+    /// The window owning `surface`, if any. The superkey's counts, mapped or
+    /// not: its commits have to reach it while it is off screen too.
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<Window> {
+        if self.superkey.owns_surface(surface) {
+            return self.superkey.window().cloned();
+        }
         self.space
             .elements()
             .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
@@ -230,7 +253,14 @@ impl State {
         self.space.map_element(window, (0, 0), false);
 
         self.relayout();
-        self.focus_id(id);
+        if self.superkey.is_shown() {
+            // Someone is typing into the superkey. The new window waits
+            // behind it, and gets the keyboard when it closes.
+            self.focus.push_front(id);
+            self.superkey_window_added(id);
+        } else {
+            self.focus_id(id);
+        }
         id
     }
 
@@ -245,7 +275,9 @@ impl State {
         self.focus.remove(id);
 
         self.relayout();
-        if let Some(next) = self.focus.focused() {
+        if self.superkey.is_shown() {
+            self.superkey_window_removed(id);
+        } else if let Some(next) = self.focus.focused() {
             self.focus_id(next);
         }
     }
@@ -256,6 +288,13 @@ impl State {
     /// why the size can never be zero: sicompass treats a 0x0 window as
     /// minimised and draws nothing until a real size arrives.
     pub fn relayout(&mut self) {
+        self.relayout_tiles();
+        // Last: mapping a tile puts it on top, and the superkey, when shown,
+        // belongs above every tile.
+        self.place_superkey();
+    }
+
+    fn relayout_tiles(&mut self) {
         if self.tiler.is_empty() {
             return;
         }
@@ -329,8 +368,46 @@ impl State {
         }
     }
 
+    /// Start a program the superkey asked for. No shell: `argv` is already
+    /// split, from the program's `.desktop` entry. Unlike the terminal, it is
+    /// not told it is part of the session (no SICOMPASS_SESSION), since that
+    /// is what makes sicompass take charge of the screen reader.
+    pub fn spawn_argv(&mut self, argv: &[String], cwd: Option<&str>) {
+        let Some((program, args)) = argv.split_first() else {
+            warn!("the superkey asked to start an empty command");
+            return;
+        };
+        let mut command = std::process::Command::new(program);
+        command
+            .args(args)
+            .env("WAYLAND_DISPLAY", &self.socket_name)
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_SOCKET")
+            .env_remove(desicompass_superkey_protocol::ENV_IPC_FD);
+        match cwd
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(Into::into))
+        {
+            Some(dir) if dir.is_dir() => {
+                command.current_dir(dir);
+            }
+            _ => {}
+        }
+        info!("starting {argv:?}");
+        match command.spawn() {
+            Ok(child) => self.children.push(child),
+            Err(e) => error!("failed to start {program:?}: {e}"),
+        }
+    }
+
+    /// Collect the programs that have exited.
+    pub fn reap_children(&mut self) {
+        self.children
+            .retain_mut(|c| !matches!(c.try_wait(), Ok(Some(_)) | Err(_)));
+    }
+
     /// Launch the configured command as a new client.
-    fn spawn(&self) {
+    fn spawn(&mut self) {
         if self.spawn_cmd.is_empty() {
             warn!("spawn binding pressed but no command is configured");
             return;
@@ -346,7 +423,10 @@ impl State {
             .env_remove("DISPLAY")
             .spawn()
         {
-            Ok(child) => debug!("spawned pid {}", child.id()),
+            Ok(child) => {
+                debug!("spawned pid {}", child.id());
+                self.children.push(child);
+            }
             Err(e) => error!("failed to spawn {:?}: {e}", self.spawn_cmd),
         }
     }
@@ -406,6 +486,16 @@ pub fn apply_keybinding(
     // two presses have to be consecutive.
     if !matches!(action, BindingAction::Quit | BindingAction::PassThrough) {
         state.quit_armed = false;
+    }
+
+    // Every other binding acts on the windows behind the superkey, so it
+    // closes first and hands the keyboard back. Super+J then moves on from
+    // the window that had it, as if the superkey had never opened.
+    if !matches!(
+        action,
+        BindingAction::Superkey(_) | BindingAction::PassThrough | BindingAction::Quit
+    ) {
+        state.hide_superkey(true);
     }
 
     let focused = state.focus.focused();
@@ -469,9 +559,30 @@ pub fn apply_keybinding(
         BindingAction::CloseWindow => state.close_focused(),
         BindingAction::Spawn => state.spawn(),
         BindingAction::Quit => state.request_quit(),
+        BindingAction::Superkey(Section::Root) => state.toggle_superkey(),
+        BindingAction::Superkey(section) => state.show_superkey(section),
     }
 
     FilterResult::Intercept(())
+}
+
+/// Feed a key event to the bare-Super-tap detector, and open or close the
+/// superkey when it completes one. Called by both backends before anything
+/// else looks at the key, for presses and releases alike; the key itself goes
+/// on to the client as usual.
+pub fn observe_super_tap(
+    state: &mut State,
+    keysym: &smithay::input::keyboard::KeysymHandle<'_>,
+    modifiers: &smithay::input::keyboard::ModifiersState,
+    pressed: bool,
+) {
+    let Some(sym) = keysym.raw_latin_sym_or_raw_current_sym() else {
+        return;
+    };
+    let other_mods = modifiers.ctrl || modifiers.alt || modifiers.shift;
+    if state.super_tap.observe(sym.raw(), pressed, other_mods) {
+        state.toggle_superkey();
+    }
 }
 
 /// Exchange the focused window with `other`, then re-tile.
@@ -508,6 +619,9 @@ impl CompositorHandler for State {
             if let Some(window) = self.window_for_surface(&root) {
                 window.on_commit();
             }
+            if self.superkey.owns_surface(&root) {
+                self.superkey_committed();
+            }
         }
 
         ensure_initial_configure(self, surface);
@@ -530,7 +644,13 @@ fn ensure_initial_configure(state: &mut State, surface: &WlSurface) {
                     .unwrap_or(true)
             });
             if !already_sent {
-                let size = state.output_size();
+                // The superkey fills the output as its own screen; everything
+                // else fills it too until the tiler says otherwise.
+                let size = if state.superkey.owns_surface(surface) {
+                    crate::superkey::superkey_rect(state.output_size()).size
+                } else {
+                    state.output_size()
+                };
                 toplevel.with_pending_state(|s| {
                     s.size = Some(size);
                     s.bounds = Some(size);
@@ -566,14 +686,30 @@ impl XdgShellHandler for State {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
+        let client = surface.wl_surface().client().map(|c| c.id());
         let window = Window::new_wayland_window(surface);
-        self.add_window(window);
+        if self.superkey.is_superkey_client(client) {
+            self.adopt_superkey_window(window);
+        } else {
+            self.add_window(window);
+        }
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
-        if let Some(id) = self.id_for_surface(surface.wl_surface()) {
+        if self.superkey.owns_surface(surface.wl_surface()) {
+            self.superkey_window_destroyed();
+        } else if let Some(id) = self.id_for_surface(surface.wl_surface()) {
             self.remove_window(id);
         }
+    }
+
+    // A window's name is what the superkey lists it by.
+    fn title_changed(&mut self, _surface: ToplevelSurface) {
+        self.send_window_list();
+    }
+
+    fn app_id_changed(&mut self, _surface: ToplevelSurface) {
+        self.send_window_list();
     }
 
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {

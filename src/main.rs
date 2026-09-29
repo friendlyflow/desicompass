@@ -24,6 +24,8 @@
 //! | `Super+Return` | spawn the terminal |
 //! | `Super+Shift+Q` | close the focused window |
 //! | `Super+Shift+E` | end the session (press twice, on separate presses) |
+//! | `Super` (tapped alone) | open or close the superkey |
+//! | `Super+W` / `Super+C` / `Super+S` | open the superkey on windows / controls / settings |
 
 #[cfg(target_os = "linux")]
 mod a11y_keyboard_monitor;
@@ -39,6 +41,8 @@ mod layout;
 mod startup;
 #[cfg(target_os = "linux")]
 mod state;
+#[cfg(target_os = "linux")]
+mod superkey;
 #[cfg(target_os = "linux")]
 mod tty;
 #[cfg(target_os = "linux")]
@@ -161,6 +165,7 @@ mod linux {
             startup_cmd: args.startup_cmd.clone(),
             xkb: args.xkb_overrides(),
             terminal: args.terminal.clone(),
+            superkey_cmd: crate::superkey::resolve_command(),
         }
     }
 
@@ -213,8 +218,10 @@ mod linux {
         let mut state = State::new(
             &dh,
             event_loop.get_signal(),
+            event_loop.handle(),
             output.clone(),
             Gpu::Winit(Box::new(backend)),
+            crate::superkey::resolve_command(),
         );
 
         // Advertise zwp_linux_dmabuf_v1 with per-surface feedback.
@@ -337,6 +344,9 @@ mod linux {
                         0.into(),
                         event.time(),
                         |app_state, modifiers, keysym| {
+                            // The Super tap watches everything, and takes
+                            // nothing; see the TTY backend.
+                            crate::state::observe_super_tap(app_state, &keysym, modifiers, pressed);
                             // The screen reader first; see the TTY backend.
                             if app_state
                                 .a11y_keyboard
@@ -425,6 +435,9 @@ mod linux {
                 }
             }
 
+            state.send_superkey_frame_if_unmapped();
+            state.maintain_superkey();
+            state.reap_children();
             state.space.refresh();
             state.popups.cleanup();
             state.display_handle.flush_clients()?;

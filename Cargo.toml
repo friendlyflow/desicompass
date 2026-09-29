@@ -1,13 +1,28 @@
+# The compositor is the root package, and its superkey lives beside it in
+# lib/. `cargo test` and `cargo clippy` cover all of them (default-members).
+[workspace]
+members = [".", "lib/lib_superkey", "lib/lib_superkey_protocol"]
+default-members = [".", "lib/lib_superkey", "lib/lib_superkey_protocol"]
+resolver = "3"
+
+# The one version for everything built here. flake.nix reads it from this
+# table.
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+license = "GPL-3.0-only"
+repository = "https://github.com/friendlyflow/desicompass"
+
 [package]
 # Shipped as a Nix package and through the NixOS module in flake.nix, never
 # through crates.io.
 publish = false
 name = "desicompass"
-version = "0.2.0"
-edition = "2024"
-license = "GPL-3.0-only"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 description = "Keyboard-driven tiling Wayland compositor for sicompass"
-repository = "https://github.com/friendlyflow/desicompass"
+repository.workspace = true
 
 [[bin]]
 name = "desicompass"
@@ -62,3 +77,19 @@ clap = { version = "4", features = ["derive"] }
 # on the system bus, which is where the OS installer puts it. Already in the
 # lock through accesskit_unix, so this adds no crates.
 zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+
+# The superkey protocol, shared with desicompass-superkey. Serde only: the
+# compositor must never link the superkey itself (SDL3, Vulkan).
+desicompass-superkey-protocol = { path = "lib/lib_superkey_protocol" }
+serde_json = "1"
+# FD_CLOEXEC on the sockets handed to the superkey. Already in the lock
+# through smithay and calloop.
+libc = "0.2"
+
+# Work on the renderer and the superkey together: uncomment, and comment out
+# again before committing (the same rule as in sicompass and loginsicompass).
+# It has to be here, in the workspace root, to apply to lib/lib_superkey.
+# [patch."https://github.com/friendlyflow/sicompass-ui"]
+# sicompass-ui = { path = "../sicompass-ui" }
+# [patch.crates-io]
+# sicompass-sdk = { path = "../sicompass-plugin-sdk" }

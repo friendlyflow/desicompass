@@ -22,8 +22,13 @@ is installed system-wide.
   stderr first. That warning is noise, not a failure.
 - Evaluate the flake through `git+file://$PWD`, never a plain path (a plain path
   copies `target/` into the store and hangs), and always under `timeout`.
-- The version lives in `[package] version` in `Cargo.toml`. `flake.nix` reads it
-  from there, so there is only one version to bump.
+- The version lives in `[workspace.package] version` in the root `Cargo.toml`.
+  `flake.nix` reads it from there, so there is only one version to bump.
+- The repo is a Cargo workspace. `cargo test -p` takes the package name, which
+  differs from the directory: `lib/lib_superkey` is `desicompass-superkey` and
+  `lib/lib_superkey_protocol` is `desicompass-superkey-protocol`. The root
+  package is `desicompass`. `cargo test` and `cargo clippy` with no `-p` cover
+  all three (`default-members`).
 - Linux only. The dev shell and every package are `x86_64-linux` and
   `aarch64-linux`.
 
@@ -68,6 +73,32 @@ libraries (libglvnd, libgbm) on `LD_LIBRARY_PATH`, and point the *vendor* at
 `/run/opengl-driver` with `--set-default`. Never add nixpkgs' `mesa` to either
 path. Two Mesa builds in one process segfault on the first call across the
 boundary, and only on the TTY/GBM path, so a nested run does not catch it.
+
+## Architecture: the superkey
+
+`desicompass-superkey` (`lib/lib_superkey`) is a sicompass-ui client, found
+and started once by the compositor (no flag, see `superkey::resolve_command`)
+and shown and hidden by it. See
+[docs/superkey.md](docs/superkey.md). Three rules:
+
+- **The compositor never depends on the superkey crate.** They share only
+  `lib/lib_superkey_protocol`, which depends on serde alone. Cargo unifies
+  features across a workspace, and the superkey links SDL3 and Vulkan. The
+  compositor's package builds with `-p desicompass` for the same reason.
+- **The superkey's window is known by its `ClientId`**, from the Wayland
+  socketpair the compositor inserted, never by its app_id. Its toplevel stays
+  out of `windows`, the tiler and the focus stack.
+- **The superkey never starts or stops Orca.** In a session, sicompass owns the
+  screen reader.
+- **The module never passes the compositor, the greeter or the superkey a flag
+  an older release lacks.** The stable session and the login screen often run
+  a release while the module comes from a working tree, and an unknown flag
+  stops the binary: that is how the login screen once went black. Pass new
+  settings in the environment instead, which older binaries ignore.
+
+The `[patch]` sections for working on sicompass-ui and the SDK together sit at
+the bottom of the root `Cargo.toml`, the workspace root being the only place
+cargo honours them. Comment them out again before committing.
 
 ## Architecture: the NixOS module
 

@@ -1,0 +1,18 @@
+[package]
+# Internal to this workspace: the compositor and desicompass-superkey link it,
+# nothing else does.
+publish = false
+name = "desicompass-superkey-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The messages desicompass and its superkey exchange"
+repository.workspace = true
+
+# A crate of its own, depending on nothing but serde, so the compositor can
+# speak the protocol without depending on the superkey. Cargo unifies
+# features across a workspace, and the superkey links SDL3 and Vulkan.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
