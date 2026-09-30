@@ -5,6 +5,7 @@
 //! for the host, which is the one that can talk to the compositor and the
 //! renderer.
 
+use desicompass_bar_protocol::settings::{self as bar, BarSettings};
 use sicompass_ui::accessibility::{self, ALL_KEYS};
 
 use crate::power;
@@ -20,10 +21,16 @@ pub enum Action {
     Power(&'static str),
     /// End the session.
     Logout,
-    /// Flip an on/off accessibility setting.
+    /// Flip an on/off setting: accessibility, or the bar's.
     Toggle(&'static str),
-    /// Choose a value for an accessibility setting.
+    /// Choose a value for a setting: accessibility, or the bar's.
     Set(&'static str, String),
+    /// Dismiss one notification, by its id.
+    Dismiss(u32),
+    /// Dismiss every notification.
+    DismissAll,
+    /// Activate a tray item: its bus name and object path.
+    Activate { service: String, path: String },
 }
 
 /// Build a button's function name. The inverse of [`parse`].
@@ -35,6 +42,10 @@ pub fn function_name(action: &Action) -> String {
         Action::Logout => "session:logout".to_owned(),
         Action::Toggle(key) => format!("toggle:{key}"),
         Action::Set(key, value) => format!("set:{key}:{value}"),
+        Action::Dismiss(id) => format!("notification:{id}"),
+        Action::DismissAll => "notifications:dismiss-all".to_owned(),
+        // Neither a bus name nor an object path has a space in it.
+        Action::Activate { service, path } => format!("tray:{service} {path}"),
     }
 }
 
@@ -56,23 +67,37 @@ pub fn parse(name: &str) -> Option<Action> {
         "set" => {
             let (key, value) = rest.split_once(':')?;
             let key = setting_key(key)?;
-            // Only a value the settings would accept: the file is shared, and
-            // nothing else may land in it.
-            accessibility::AccessibilitySettings::default()
-                .set(key, value)
-                .then(|| Action::Set(key, value.to_owned()))
+            // Only a value the settings would accept: the files are shared,
+            // and nothing else may land in them.
+            let valid = if BarSettings::is_key(key) {
+                BarSettings::default().set(key, value)
+            } else {
+                accessibility::AccessibilitySettings::default().set(key, value)
+            };
+            valid.then(|| Action::Set(key, value.to_owned()))
+        }
+        "notification" => rest.parse().ok().map(Action::Dismiss),
+        "notifications" if rest == "dismiss-all" => Some(Action::DismissAll),
+        "tray" => {
+            let (service, path) = rest.split_once(' ')?;
+            (!service.is_empty() && path.starts_with('/')).then(|| Action::Activate {
+                service: service.to_owned(),
+                path: path.to_owned(),
+            })
         }
         _ => None,
     }
 }
 
 fn setting_key(s: &str) -> Option<&'static str> {
-    ALL_KEYS.iter().copied().find(|k| *k == s)
+    ALL_KEYS.iter().chain(bar::KEYS).copied().find(|k| *k == s)
 }
 
 /// The settings that are a switch rather than a choice.
 pub fn is_switch(key: &str) -> bool {
-    key == accessibility::KEY_SCREEN_READER || key == accessibility::KEY_SHOULDER_SURFING
+    key == accessibility::KEY_SCREEN_READER
+        || key == accessibility::KEY_SHOULDER_SURFING
+        || key == bar::KEY_SECONDS
 }
 
 #[cfg(test)]
@@ -96,6 +121,14 @@ mod tests {
             Action::Set(KEY_FONT_SCALE, "2.00".into()),
             Action::Set(KEY_COLOR_SCHEME, "light".into()),
             Action::Set(KEY_LANGUAGE, "nl-BE".into()),
+            Action::Toggle(bar::KEY_SECONDS),
+            Action::Set(bar::KEY_POSITION, "top".into()),
+            Action::Dismiss(7),
+            Action::DismissAll,
+            Action::Activate {
+                service: ":1.42".into(),
+                path: "/org/ayatana/NotificationItem/dropbox".into(),
+            },
         ] {
             assert_eq!(parse(&function_name(&a)), Some(a));
         }
@@ -122,6 +155,15 @@ mod tests {
             "set:wallpaper:cats",
             "launch:foot",
             "reboot",
+            "set:barPosition:left",
+            "toggle:barPosition",
+            "notification:",
+            "notification:x",
+            "notifications:all",
+            "tray:",
+            "tray::1.42",
+            "tray::1.42 relative",
+            "tray: /path",
         ] {
             assert_eq!(parse(name), None, "{name:?}");
         }

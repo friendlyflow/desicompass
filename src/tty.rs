@@ -76,6 +76,7 @@ pub struct TtyArgs {
     pub xkb: crate::xkb::XkbNames,
     pub terminal: String,
     pub superkey_cmd: Option<String>,
+    pub bar_cmd: Option<String>,
 }
 
 /// The DRM side, owned by [`crate::gpu::Gpu::Tty`].
@@ -208,6 +209,7 @@ pub fn run(args: TtyArgs) -> Result<(), Box<dyn std::error::Error>> {
         output.clone(),
         Gpu::Tty(Box::new(tty)),
         args.superkey_cmd.clone(),
+        args.bar_cmd.clone(),
     );
 
     // ---- Keyboard -------------------------------------------------------
@@ -344,6 +346,7 @@ pub fn run(args: TtyArgs) -> Result<(), Box<dyn std::error::Error>> {
         render(&mut state);
         state.send_superkey_frame_if_unmapped();
         state.maintain_superkey();
+        state.maintain_bar();
         state.reap_children();
         state.space.refresh();
         state.popups.cleanup();

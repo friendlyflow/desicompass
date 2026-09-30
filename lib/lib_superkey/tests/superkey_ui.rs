@@ -10,13 +10,18 @@
 
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use desicompass_bar_protocol::Edge;
+use desicompass_bar_protocol::settings::BarSettingsFile;
+use desicompass_bar_protocol::status::{self, Notification, StatusFile, StatusSnapshot, TrayItem};
 use desicompass_superkey::apps::Catalogue;
-use desicompass_superkey::gui::{SuperkeyHooks, apply_startup, build};
+use desicompass_superkey::gui::{BarLink, SuperkeyHooks, apply_startup, build};
 use desicompass_superkey::ipc::Ipc;
 use desicompass_superkey::power;
+use desicompass_superkey::status::RecordedActions;
 use desicompass_superkey_protocol::{
     FromSuperkey, LineDecoder, Section, ToSuperkey, WindowInfo, encode,
 };
@@ -30,7 +35,17 @@ struct Harness {
     hooks: SuperkeyHooks,
     compositor: UnixStream,
     decoder: LineDecoder,
+    /// What the Status section asked of the bar over D-Bus.
+    calls: Arc<RecordedActions>,
     dir: tempfile::TempDir,
+}
+
+fn bar_settings_path(dir: &Path) -> PathBuf {
+    dir.join("config/desicompass/bar.json")
+}
+
+fn status_path(dir: &Path) -> PathBuf {
+    dir.join("run/desicompass/status-wayland-1.json")
 }
 
 fn write(dir: &Path, rel: &str, text: &str) {
@@ -65,11 +80,18 @@ fn harness() -> Harness {
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
     let ipc = Ipc::from_stream(superkey_end).unwrap();
+    let calls = Arc::new(RecordedActions::default());
+    let bar = BarLink {
+        settings: BarSettingsFile::open(Some(bar_settings_path(dir.path()))),
+        status: StatusFile::open(Some(status_path(dir.path()))),
+        actions: Box::new(Arc::clone(&calls)),
+    };
     let (provider, hooks, settings) = build(
         shared_in(dir.path()),
         catalogue,
         Some(ipc),
         power::Commands::default(),
+        bar,
         false,
     );
     let mut r = AppRenderer::new();
@@ -80,6 +102,7 @@ fn harness() -> Harness {
         hooks,
         compositor,
         decoder: LineDecoder::new(),
+        calls,
         dir,
     };
     assert_eq!(h.next_message(), FromSuperkey::Hello { version: 1 });
@@ -172,9 +195,11 @@ fn it_starts_hidden_and_a_show_opens_the_root_in_search() {
     assert_eq!(
         h.rows(),
         [
-            "+ Windows",
-            "+ Controls",
-            "+ Settings",
+            "+ Notifications (0) [n]",
+            "+ Windows [w]",
+            "+ Controls [c]",
+            "+ Status [b]",
+            "+ Settings [s]",
             "-b Firefox",
             "-b Foot"
         ]
@@ -229,6 +254,8 @@ fn log_out_ends_the_session() {
 fn a_setting_changed_here_is_written_to_the_shared_object() {
     let mut h = harness();
     h.show(Section::Settings, windows());
+    h.type_text("accessibility");
+    h.key(Keycode::Return);
     h.type_text("screen");
     h.key(Keycode::Return);
     let saved = shared_in(h.dir.path());
@@ -245,6 +272,7 @@ fn a_setting_changed_here_is_written_to_the_shared_object() {
 fn a_choice_opens_into_its_values_and_applies_at_once() {
     let mut h = harness();
     h.show(Section::Settings, windows());
+    // The colour scheme is in Settings itself, not in Accessibility.
     h.type_text("color");
     h.key(Keycode::Return);
     assert_eq!(h.rows(), ["-rc dark", "-r light"]);
@@ -299,4 +327,140 @@ fn the_compositor_going_away_ends_the_superkey() {
         assert!(Instant::now() < deadline, "never noticed");
         std::thread::sleep(Duration::from_millis(5));
     }
+}
+
+#[test]
+fn settings_are_the_scheme_and_language_then_accessibility_then_the_bar() {
+    let mut h = harness();
+    h.show(Section::Settings, windows());
+    assert_eq!(
+        h.rows(),
+        [
+            "+R color scheme [dark]",
+            "+R language [English]",
+            "+ Accessibility",
+            "+ Bar"
+        ]
+    );
+}
+
+#[test]
+fn the_bar_settings_are_in_settings_and_a_choice_is_saved_for_the_bar() {
+    let mut h = harness();
+    h.show(Section::Settings, windows());
+    h.type_text("bar");
+    h.key(Keycode::Return);
+    assert_eq!(h.rows(), ["+R bar position [bottom]", "-c show seconds"]);
+    h.key(Keycode::Return);
+    assert_eq!(h.rows(), ["-rc bottom", "-r top"]);
+    h.type_text("top");
+    h.key(Keycode::Return);
+    let saved = BarSettingsFile::open(Some(bar_settings_path(h.dir.path()))).get();
+    assert_eq!(saved.position, Edge::Top);
+    assert_eq!(h.rows(), ["-r bottom", "-rc top"]);
+}
+
+#[test]
+fn seconds_are_switched_on_for_the_bar() {
+    let mut h = harness();
+    h.show(Section::Settings, windows());
+    h.type_text("bar");
+    h.key(Keycode::Return);
+    h.type_text("seconds");
+    h.key(Keycode::Return);
+    let saved = BarSettingsFile::open(Some(bar_settings_path(h.dir.path()))).get();
+    assert!(saved.seconds);
+    assert!(
+        h.rows().iter().any(|r| r == "-cc show seconds"),
+        "{:?}",
+        h.rows()
+    );
+}
+
+fn some_status() -> StatusSnapshot {
+    StatusSnapshot {
+        notifications: vec![
+            Notification {
+                id: 4,
+                app: "Mail".into(),
+                summary: "New message".into(),
+                body: String::new(),
+            },
+            Notification {
+                id: 5,
+                app: "Chat".into(),
+                summary: "Hi".into(),
+                body: String::new(),
+            },
+        ],
+        tray: vec![TrayItem {
+            service: ":1.42".into(),
+            path: "/StatusNotifierItem".into(),
+            title: "Dropbox".into(),
+        }],
+        ..StatusSnapshot::default()
+    }
+}
+
+/// The harness with `some_status` written where the bar writes it.
+fn harness_with_status() -> Harness {
+    let h = harness();
+    // Past the poll's throttle, so the first frame reads it.
+    std::thread::sleep(status::POLL_INTERVAL);
+    status::write(&status_path(h.dir.path()), &some_status()).unwrap();
+    h
+}
+
+#[test]
+fn super_b_opens_the_status_the_bar_writes() {
+    let mut h = harness_with_status();
+    h.show(Section::Status, windows());
+    h.frames_until(|r| r.total_list.iter().any(|i| i.label == "+ Tray"));
+    let rows = h.rows();
+    assert_eq!(rows.len(), 2, "the clock, then the tray: {rows:?}");
+    assert!(rows[0].contains(", "), "the date and time first: {rows:?}");
+    assert_eq!(rows[1], "+ Tray");
+}
+
+#[test]
+fn the_notification_count_is_in_the_root() {
+    let mut h = harness_with_status();
+    h.show(Section::Root, windows());
+    h.frames_until(|r| {
+        r.total_list
+            .first()
+            .is_some_and(|i| i.label == "+ Notifications (2) [n]")
+    });
+}
+
+#[test]
+fn super_n_opens_the_notifications_and_enter_dismisses_one() {
+    let mut h = harness_with_status();
+    h.show(Section::Notifications, windows());
+    h.frames_until(|r| r.total_list.len() == 3);
+    assert_eq!(
+        h.rows(),
+        ["-b Dismiss all", "-b Mail: New message", "-b Chat: Hi"]
+    );
+    h.type_text("chat");
+    h.key(Keycode::Return);
+    assert_eq!(*h.calls.calls.lock().unwrap(), ["close 5"]);
+    h.frames_until(|r| r.total_list.len() == 1);
+    assert_eq!(h.rows(), ["-b Mail: New message"]);
+}
+
+#[test]
+fn enter_on_a_tray_item_activates_it_and_gets_out_of_the_way() {
+    let mut h = harness_with_status();
+    h.show(Section::Status, windows());
+    h.frames_until(|r| r.total_list.iter().any(|i| i.label == "+ Tray"));
+    h.type_text("tray");
+    h.key(Keycode::Return);
+    assert_eq!(h.rows(), ["-b Dropbox"]);
+    h.key(Keycode::Return);
+    assert_eq!(
+        *h.calls.calls.lock().unwrap(),
+        ["activate :1.42/StatusNotifierItem"]
+    );
+    assert_eq!(h.next_message(), FromSuperkey::Hide);
 }

@@ -209,10 +209,12 @@
             # the compositor at this flake's own build of it, so every session
             # has one with nothing to configure. A default, so the login
             # screen's empty value (no superkey before signing in) still wins.
+            # The bar, DESICOMPASS_BAR, the same way.
             postInstall = ''
               wrapProgram $out/bin/desicompass \
                 --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath (runtimeLibs pkgs)}" \
                 --set-default DESICOMPASS_SUPERKEY ${desicompass-superkey}/bin/desicompass-superkey \
+                --set-default DESICOMPASS_BAR ${desicompass-bar}/bin/desicompass-bar \
                 ${pkgs.lib.concatStringsSep " \\\n  " (pkgs.lib.mapAttrsToList
                   (name: value: "--set-default ${name} ${value}") mesaVendor)}
             '';
@@ -301,6 +303,83 @@
                 homepage = "https://github.com/friendlyflow/desicompass";
                 license = licenses.gpl3Only;
                 mainProgram = "desicompass-superkey";
+                platforms = platforms.linux;
+              };
+            });
+
+          # The bar, a sicompass-ui client built exactly like the superkey. It
+          # runs `spd-say` (Super+T) and `wpctl` (the volume) from the
+          # session's PATH rather than bundling them, so they are the ones
+          # that match the running speech-dispatcher and PipeWire. The module
+          # enables Orca, which brings speech-dispatcher; without `wpctl`
+          # there is simply no volume icon.
+          desicompass-bar =
+            let
+              barArgs = {
+                inherit version;
+                pname = "desicompass-bar";
+                # The font licenses are installed below and read by the tests.
+                src = lib.fileset.toSource {
+                  root = ./.;
+                  fileset = lib.fileset.unions [
+                    (craneLib.fileset.commonCargoSources ./.)
+                    ./lib/lib_bar/fonts
+                    ./THIRD-PARTY-LICENSES.html
+                  ];
+                };
+                strictDeps = true;
+                cargoExtraArgs = "--locked -p desicompass-bar";
+                # tests/dbus.rs starts a dbus-daemon; run the suite in the dev
+                # shell.
+                doCheck = false;
+                nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
+                buildInputs = with pkgs; [
+                  sdl3
+                  freetype
+                  libwebp
+                  libxkbcommon
+                  wayland
+                  at-spi2-core
+                  dbus
+                  libGL
+                  libgbm
+                  libdrm
+                ];
+              };
+            in
+            craneLib.buildPackage (barArgs // {
+              cargoArtifacts = craneLib.buildDepsOnly barArgs;
+              nativeBuildInputs = barArgs.nativeBuildInputs ++ [ pkgs.makeWrapper ];
+
+              # The same wrapper as the superkey's: the Vulkan loader and the
+              # dispatch libraries on the path, the vendor from
+              # /run/opengl-driver (see mesaVendor).
+              postInstall = ''
+                wrapProgram $out/bin/desicompass-bar \
+                  --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath (with pkgs; [
+                    vulkan-loader
+                    sdl3
+                    libGL
+                    libgbm
+                    libxkbcommon
+                    wayland
+                  ])}" \
+                  ${lib.concatStringsSep " \\\n  " (lib.mapAttrsToList
+                    (name: value: "--set-default ${name} ${value}") mesaVendor)}
+
+                install -Dm644 lib/lib_bar/fonts/LICENSE-DejaVu.txt \
+                  $out/share/doc/desicompass-bar/LICENSE-DejaVu.txt
+                install -Dm644 lib/lib_bar/fonts/LICENSE-NotoColorEmoji.txt \
+                  $out/share/doc/desicompass-bar/LICENSE-NotoColorEmoji.txt
+                install -Dm644 THIRD-PARTY-LICENSES.html \
+                  $out/share/doc/desicompass-bar/THIRD-PARTY-LICENSES.html
+              '';
+
+              meta = with lib; {
+                description = "The bar of the desicompass session";
+                homepage = "https://github.com/friendlyflow/desicompass";
+                license = licenses.gpl3Only;
+                mainProgram = "desicompass-bar";
                 platforms = platforms.linux;
               };
             });
@@ -694,6 +773,10 @@
                   # rather than a flag, so a compositor older than the superkey
                   # just ignores it.
                   "DESICOMPASS_SUPERKEY="
+                  # No bar either: the login screen shows the time itself, and
+                  # the rest of a bar (notifications, the tray) is nobody's
+                  # before signing in.
+                  "DESICOMPASS_BAR="
                   # Load-bearing for the same reason as on the session's Exec
                   # line: without a session bus the greeter is mute to Orca.
                   "${pkgs.dbus}/bin/dbus-run-session"

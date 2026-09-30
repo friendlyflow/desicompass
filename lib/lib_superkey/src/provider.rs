@@ -1,10 +1,19 @@
 //! The superkey's list, as a sicompass provider.
 //!
 //! ```text
-//! + Windows               one button per open window, most recent first
-//! + Controls              suspend, restart, shut down, log out
-//! + Settings              the accessibility settings
+//! + Notifications (2) [n] one button per notification: Enter dismisses it
+//! + Windows [w]           one button per open window, most recent first
+//! + Controls [c]          suspend, restart, shut down, log out
+//! + Status [b]            what the bar's icons show, in words
+//!   + Tray                one button per tray item: Enter activates it
+//! + Settings [s]
+//!   +R color scheme       dark, light
+//!   +R language           the four languages, each named in itself
+//!   + Accessibility       screen reader, font scale, shoulder-surfing protection
+//!   + Bar                 where the bar sits, seconds on its clock
 //! -b Firefox              then every installed program, by name
+//!
+//! A section's label ends in the key that opens it with Super held.
 //! -b Files
 //! ```
 //!
@@ -20,6 +29,10 @@
 
 use std::sync::{Arc, Mutex};
 
+use desicompass_bar_protocol::settings::{self as bar, BarSettings};
+use desicompass_bar_protocol::status::{
+    BatteryState, Connectivity, NetworkKind, Notification, StatusSnapshot, TrayItem,
+};
 use desicompass_superkey_protocol::WindowInfo;
 use sicompass_sdk::ffon::FfonElement;
 use sicompass_sdk::provider::Provider;
@@ -31,7 +44,7 @@ use sicompass_ui::accessibility::{
 
 use crate::actions::{Action, function_name, parse};
 use crate::apps::App;
-use crate::i18n::t;
+use crate::i18n::{t, t_with};
 use crate::power;
 
 /// What the host tells the provider, and what the provider hands back.
@@ -41,6 +54,13 @@ pub struct Shared {
     pub apps: Vec<App>,
     /// The effective accessibility settings, every key set.
     pub settings: AccessibilitySettings,
+    /// The bar's settings.
+    pub bar: BarSettings,
+    /// What the bar last reported.
+    pub status: StatusSnapshot,
+    /// The date and time, as the Status section reads it. Set by the host,
+    /// on the minute.
+    pub clock: String,
     /// Pressed, not yet carried out.
     pub actions: Vec<Action>,
     pub announcement: Option<String>,
@@ -57,16 +77,44 @@ pub enum Node {
     Windows,
     Controls,
     Settings,
-    /// The options of one accessibility setting, inside Settings.
+    Status,
+    /// Inside Settings: the accessibility settings.
+    Accessibility,
+    /// Inside Settings: the bar's settings.
+    Bar,
+    /// Inside Status.
+    Notifications,
+    /// Inside Status.
+    Tray,
+    /// The options of one setting with a list of values.
     Choice(&'static str),
 }
 
-/// The three sections, in the order the root lists them. The index is what
-/// the host lands the cursor on.
-pub const SECTIONS: [Node; 3] = [Node::Windows, Node::Controls, Node::Settings];
+/// The sections, in the order the root lists them. The index is what the host
+/// lands the cursor on.
+pub const SECTIONS: [Node; 5] = [
+    Node::Notifications,
+    Node::Windows,
+    Node::Controls,
+    Node::Status,
+    Node::Settings,
+];
 
-/// The settings with a list of values, as they appear inside Settings.
-const CHOICES: [&str; 3] = [KEY_FONT_SCALE, KEY_COLOR_SCHEME, KEY_LANGUAGE];
+/// The groups inside Settings, in order, after [`SETTINGS_CHOICES`].
+pub const GROUPS: [Node; 2] = [Node::Accessibility, Node::Bar];
+
+/// The choices at the top of Settings. They are the session's, shared with the
+/// login screen like the accessibility settings, but not accessibility.
+const SETTINGS_CHOICES: [&str; 2] = [KEY_COLOR_SCHEME, KEY_LANGUAGE];
+
+/// The accessibility settings with a list of values.
+const CHOICES: [&str; 1] = [KEY_FONT_SCALE];
+
+/// The bar's settings with a list of values.
+const BAR_CHOICES: [&str; 1] = [bar::KEY_POSITION];
+
+/// Every on/off setting: the accessibility ones, then the bar's.
+const SWITCHES: [&str; 3] = [KEY_SCREEN_READER, KEY_SHOULDER_SURFING, bar::KEY_SECONDS];
 
 pub struct SuperkeyProvider {
     shared: SharedState,
@@ -100,6 +148,11 @@ impl SuperkeyProvider {
                     Some(Node::Windows) => "windows".to_owned(),
                     Some(Node::Controls) => "controls".to_owned(),
                     Some(Node::Settings) => "settings".to_owned(),
+                    Some(Node::Status) => "status".to_owned(),
+                    Some(Node::Accessibility) => "accessibility".to_owned(),
+                    Some(Node::Bar) => "bar".to_owned(),
+                    Some(Node::Notifications) => "notifications".to_owned(),
+                    Some(Node::Tray) => "tray".to_owned(),
                     Some(Node::Choice(k)) => (*k).to_owned(),
                     None => "?".to_owned(),
                 })
@@ -113,7 +166,7 @@ impl SuperkeyProvider {
     fn root(&self) -> Vec<FfonElement> {
         let mut out: Vec<FfonElement> = SECTIONS
             .iter()
-            .map(|&n| section(&section_label(n), self.rows(n)))
+            .map(|&n| section(&self.label(n), self.rows(n)))
             .collect();
         out.extend(
             self.shared()
@@ -128,8 +181,34 @@ impl SuperkeyProvider {
         match node {
             Node::Windows => self.window_rows(),
             Node::Controls => control_rows(),
-            Node::Settings => self.settings_rows(),
+            Node::Settings => SETTINGS_CHOICES
+                .iter()
+                .map(|&k| self.radio(k))
+                .chain(
+                    GROUPS
+                        .iter()
+                        .map(|&g| section(&self.label(g), self.rows(g))),
+                )
+                .collect(),
+            Node::Accessibility => self.settings_rows(),
+            Node::Bar => self.bar_rows(),
+            Node::Status => self.status_rows(),
+            Node::Notifications => self.notification_rows(),
+            Node::Tray => self.tray_rows(),
             Node::Choice(key) => self.choice_rows(key),
+        }
+    }
+
+    /// A node's label, with the notification count where it has one, and
+    /// the key that opens it where there is one: `Notifications (2) [n]`.
+    fn label(&self, node: Node) -> String {
+        let base = match node {
+            Node::Notifications => notifications_label(self.shared().status.notifications.len()),
+            n => section_label(n),
+        };
+        match shortcut(node) {
+            Some(key) => format!("{base} [{key}]"),
+            None => base,
         }
     }
 
@@ -150,20 +229,112 @@ impl SuperkeyProvider {
     /// each switch, a radio group for each choice.
     fn settings_rows(&self) -> Vec<FfonElement> {
         let s = self.shared().settings.clone();
-        let mut out = vec![checkbox(&s, KEY_SCREEN_READER)];
+        let on = |key| s.get(key).as_deref() == Some("true");
+        let mut out = vec![checkbox(on(KEY_SCREEN_READER), KEY_SCREEN_READER)];
         for key in CHOICES {
-            out.push(section(
-                &format!("<radio>{}", setting_label(key)),
-                self.choice_rows(key),
-            ));
+            out.push(self.radio(key));
         }
-        out.push(checkbox(&s, KEY_SHOULDER_SURFING));
+        out.push(checkbox(on(KEY_SHOULDER_SURFING), KEY_SHOULDER_SURFING));
         out
+    }
+
+    /// The bar's settings: where it sits, and seconds on the clock.
+    fn bar_rows(&self) -> Vec<FfonElement> {
+        let seconds = self.shared().bar.seconds;
+        let mut out: Vec<FfonElement> = BAR_CHOICES.iter().map(|&k| self.radio(k)).collect();
+        out.push(checkbox(seconds, bar::KEY_SECONDS));
+        out
+    }
+
+    fn radio(&self, key: &'static str) -> FfonElement {
+        section(
+            &format!("<radio>{}", setting_label(key)),
+            self.choice_rows(key),
+        )
+    }
+
+    /// What the bar shows, in words: the clock, then each service there is,
+    /// then the tray. The notifications have a section of their own.
+    fn status_rows(&self) -> Vec<FfonElement> {
+        let (clock, status) = {
+            let s = self.shared();
+            (s.clock.clone(), s.status.clone())
+        };
+        let mut out: Vec<FfonElement> = [Some(clock).filter(|c| !c.is_empty())]
+            .into_iter()
+            .chain([
+                status.network.map(|n| {
+                    let text = t_with(
+                        match n.kind {
+                            NetworkKind::Wired => "superkey-network-wired",
+                            NetworkKind::Wireless if n.strength.is_some() => {
+                                "superkey-network-wireless-signal"
+                            }
+                            NetworkKind::Wireless => "superkey-network-wireless",
+                            NetworkKind::Other => "superkey-network-other",
+                            NetworkKind::None => "superkey-network-none",
+                        },
+                        &[("strength", &n.strength.unwrap_or(0).to_string())],
+                    );
+                    let cut_off = n.kind != NetworkKind::None
+                        && matches!(n.connectivity, Connectivity::None | Connectivity::Limited);
+                    if cut_off {
+                        format!("{text}, {}", t("superkey-network-no-internet"))
+                    } else {
+                        text
+                    }
+                }),
+                status.audio.map(|a| {
+                    if a.muted {
+                        t("superkey-volume-muted")
+                    } else {
+                        t_with("superkey-volume", &[("percent", &a.volume.to_string())])
+                    }
+                }),
+                status.battery.map(|b| {
+                    let percent = b.percent.to_string();
+                    match b.state {
+                        BatteryState::Full => t("superkey-battery-full"),
+                        BatteryState::Charging => {
+                            t_with("superkey-battery-charging", &[("percent", &percent)])
+                        }
+                        _ => t_with("superkey-battery", &[("percent", &percent)]),
+                    }
+                }),
+                status.bluetooth.map(|b| match (b.powered, b.connected) {
+                    (false, _) => t("superkey-bluetooth-off"),
+                    (true, 0) => t("superkey-bluetooth-on"),
+                    (true, n) => {
+                        t_with("superkey-bluetooth-connected", &[("count", &n.to_string())])
+                    }
+                }),
+            ])
+            .flatten()
+            .map(FfonElement::Str)
+            .collect();
+        out.push(section(&section_label(Node::Tray), tray_rows(&status.tray)));
+        out
+    }
+
+    fn notification_rows(&self) -> Vec<FfonElement> {
+        notification_rows(&self.shared().status.notifications.clone())
+    }
+
+    fn tray_rows(&self) -> Vec<FfonElement> {
+        tray_rows(&self.shared().status.tray.clone())
     }
 
     /// A radio group's options, the current one checked.
     fn choice_rows(&self, key: &'static str) -> Vec<FfonElement> {
-        let current = self.shared().settings.get(key).unwrap_or_default();
+        let current = {
+            let s = self.shared();
+            if BarSettings::is_key(key) {
+                s.bar.get(key)
+            } else {
+                s.settings.get(key)
+            }
+        }
+        .unwrap_or_default();
         options(key)
             .iter()
             .map(|&v| {
@@ -180,12 +351,26 @@ impl SuperkeyProvider {
     /// Which node a segment the renderer pushes names, given where it is.
     fn node_for(&self, segment: &str) -> Option<Node> {
         let label = tags::strip_display(segment);
-        match self.path.last() {
-            None => SECTIONS.into_iter().find(|&n| section_label(n) == label),
-            Some(Some(Node::Settings)) => CHOICES
-                .into_iter()
+        let choice = |keys: &[&'static str]| {
+            keys.iter()
+                .copied()
                 .find(|k| label == setting_label(k))
-                .map(Node::Choice),
+                .map(Node::Choice)
+        };
+        // Compared without the key and the count: the count in
+        // "Notifications (2) [n]" changes while it is open.
+        let named = |nodes: &[Node]| {
+            nodes
+                .iter()
+                .copied()
+                .find(|&n| plain_label(&section_label(n)) == plain_label(&label))
+        };
+        match self.path.last() {
+            None => named(&SECTIONS),
+            Some(Some(Node::Settings)) => choice(&SETTINGS_CHOICES).or_else(|| named(&GROUPS)),
+            Some(Some(Node::Accessibility)) => choice(&CHOICES),
+            Some(Some(Node::Bar)) => choice(&BAR_CHOICES),
+            Some(Some(Node::Status)) => named(&[Node::Tray]),
             _ => None,
         }
     }
@@ -204,13 +389,113 @@ fn section(label: &str, children: Vec<FfonElement>) -> FfonElement {
     obj
 }
 
-fn checkbox(s: &AccessibilitySettings, key: &'static str) -> FfonElement {
+fn checkbox(on: bool, key: &'static str) -> FfonElement {
     let label = setting_label(key);
-    FfonElement::Str(if s.get(key).as_deref() == Some("true") {
+    FfonElement::Str(if on {
         tags::format_checkbox_checked(&label)
     } else {
         tags::format_checkbox(&label)
     })
+}
+
+/// The notifications, oldest first, each a button that dismisses it; "Dismiss
+/// all" first when there is more than one.
+fn notification_rows(list: &[Notification]) -> Vec<FfonElement> {
+    if list.is_empty() {
+        return vec![FfonElement::Str(t("superkey-no-notifications"))];
+    }
+    let mut out = Vec::new();
+    if list.len() > 1 {
+        out.push(button(&Action::DismissAll, &t("superkey-dismiss-all")));
+    }
+    out.extend(
+        list.iter()
+            .map(|n| button(&Action::Dismiss(n.id), &notification_label(n))),
+    );
+    out
+}
+
+fn tray_rows(items: &[TrayItem]) -> Vec<FfonElement> {
+    if items.is_empty() {
+        return vec![FfonElement::Str(t("superkey-tray-empty"))];
+    }
+    items
+        .iter()
+        .map(|i| {
+            button(
+                &Action::Activate {
+                    service: i.service.clone(),
+                    path: i.path.clone(),
+                },
+                &one_line(&i.title),
+            )
+        })
+        .collect()
+}
+
+/// A notification as one row: `Mail: New message, Hello there`.
+pub fn notification_label(n: &Notification) -> String {
+    let parts: Vec<String> = [&n.summary, &n.body]
+        .into_iter()
+        .map(|p| one_line(p))
+        .filter(|p| !p.is_empty())
+        .collect();
+    let text = parts.join(", ");
+    match one_line(&n.app) {
+        app if app.is_empty() => text,
+        app if text.is_empty() => app,
+        app => format!("{app}: {text}"),
+    }
+}
+
+/// Text from another program, as one row: its lines joined, and no markup,
+/// which some senders use although this server does not offer it, and which
+/// the list would read as its own tags.
+fn one_line(s: &str) -> String {
+    let mut plain = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            c if !in_tag => plain.push(c),
+            _ => {}
+        }
+    }
+    plain.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+pub fn notifications_label(count: usize) -> String {
+    t_with(
+        "superkey-status-notifications",
+        &[("count", &count.to_string())],
+    )
+}
+
+/// The key that opens a section with Super held, as the compositor binds it.
+pub fn shortcut(node: Node) -> Option<char> {
+    match node {
+        Node::Windows => Some('w'),
+        Node::Controls => Some('c'),
+        Node::Settings => Some('s'),
+        Node::Status => Some('b'),
+        Node::Notifications => Some('n'),
+        _ => None,
+    }
+}
+
+/// A label without its key and its count: `Notifications (2) [n]` is
+/// `Notifications`, whatever the language.
+fn plain_label(label: &str) -> &str {
+    let mut l = label;
+    for (open, close) in [(" [", ']'), (" (", ')')] {
+        if l.ends_with(close)
+            && let Some(i) = l.rfind(open)
+        {
+            l = &l[..i];
+        }
+    }
+    l
 }
 
 fn control_rows() -> Vec<FfonElement> {
@@ -228,11 +513,18 @@ fn control_rows() -> Vec<FfonElement> {
 }
 
 pub fn section_label(node: Node) -> String {
-    t(match node {
-        Node::Windows => "superkey-section-windows",
-        Node::Controls => "superkey-section-controls",
-        Node::Settings | Node::Choice(_) => "superkey-section-settings",
-    })
+    match node {
+        Node::Notifications => notifications_label(0),
+        n => t(match n {
+            Node::Windows => "superkey-section-windows",
+            Node::Controls => "superkey-section-controls",
+            Node::Status => "superkey-section-status",
+            Node::Accessibility => "superkey-group-accessibility",
+            Node::Bar => "superkey-group-bar",
+            Node::Tray => "superkey-status-tray",
+            _ => "superkey-section-settings",
+        }),
+    }
 }
 
 /// A window as the list shows it: its title, then which program it is.
@@ -253,6 +545,8 @@ pub fn setting_label(key: &str) -> String {
         KEY_COLOR_SCHEME => "superkey-setting-color-scheme",
         KEY_LANGUAGE => "superkey-setting-language",
         KEY_SHOULDER_SURFING => "superkey-setting-shoulder-surfing",
+        bar::KEY_POSITION => "superkey-setting-bar-position",
+        bar::KEY_SECONDS => "superkey-setting-bar-seconds",
         _ => return key.to_owned(),
     })
 }
@@ -262,7 +556,8 @@ pub fn value_label(key: &str, value: &str) -> String {
     match key {
         KEY_COLOR_SCHEME => t(&format!("superkey-color-{value}")),
         KEY_LANGUAGE => t(&format!("superkey-language-{value}")),
-        KEY_SCREEN_READER | KEY_SHOULDER_SURFING => t(if value == "true" {
+        bar::KEY_POSITION => t(&format!("superkey-bar-{value}")),
+        KEY_SCREEN_READER | KEY_SHOULDER_SURFING | bar::KEY_SECONDS => t(if value == "true" {
             "superkey-on"
         } else {
             "superkey-off"
@@ -276,6 +571,7 @@ fn options(key: &str) -> &'static [&'static str] {
         KEY_FONT_SCALE => FONT_SCALES,
         KEY_COLOR_SCHEME => COLOR_SCHEMES,
         KEY_LANGUAGE => LANGUAGES,
+        bar::KEY_POSITION => bar::POSITIONS,
         _ => &[],
     }
 }
@@ -325,9 +621,7 @@ impl Provider for SuperkeyProvider {
     /// state.
     fn on_checkbox_change(&mut self, label: &str, checked: bool) {
         let label = tags::strip_display(label);
-        let key = [KEY_SCREEN_READER, KEY_SHOULDER_SURFING]
-            .into_iter()
-            .find(|k| setting_label(k) == label);
+        let key = SWITCHES.into_iter().find(|k| setting_label(k) == label);
         if let Some(key) = key {
             self.shared()
                 .actions
@@ -339,7 +633,12 @@ impl Provider for SuperkeyProvider {
     /// group's label and `value` the option's, as shown.
     fn on_radio_change(&mut self, group: &str, value: &str) {
         let group = tags::strip_display(group);
-        let Some(key) = CHOICES.into_iter().find(|k| setting_label(k) == group) else {
+        let Some(key) = SETTINGS_CHOICES
+            .into_iter()
+            .chain(CHOICES)
+            .chain(BAR_CHOICES)
+            .find(|k| setting_label(k) == group)
+        else {
             return;
         };
         if let Some(stored) = options(key).iter().find(|v| value_label(key, v) == value) {
@@ -403,17 +702,32 @@ mod tests {
     }
 
     #[test]
-    fn the_root_is_three_sections_then_the_programs() {
+    fn the_root_is_the_sections_then_the_programs() {
         let (mut p, _) = provider();
         assert_eq!(
             texts(&p.fetch()),
             [
-                "+Windows",
-                "+Controls",
-                "+Settings",
+                "+Notifications (0) [n]",
+                "+Windows [w]",
+                "+Controls [c]",
+                "+Status [b]",
+                "+Settings [s]",
                 "<button>app:foot</button>Foot"
             ]
         );
+    }
+
+    #[test]
+    fn a_section_is_reached_by_its_label_with_or_without_its_key() {
+        let (mut p, _) = provider();
+        for label in ["Status [b]", "Status"] {
+            p.push_path(label);
+            assert_eq!(p.current_path(), "/status", "{label}");
+            p.pop_path();
+        }
+        // Only the key's own brackets come off.
+        p.push_path("Status [x");
+        assert!(p.fetch().is_empty());
     }
 
     #[test]
@@ -452,13 +766,23 @@ mod tests {
         assert_eq!(
             texts(&p.fetch()),
             [
-                "<checkbox>screen reader",
-                "+<radio>font scale",
                 "+<radio>color scheme",
                 "+<radio>language",
+                "+Accessibility",
+                "+Bar"
+            ]
+        );
+        p.push_path("Accessibility");
+        assert_eq!(p.current_path(), "/settings/accessibility");
+        assert_eq!(
+            texts(&p.fetch()),
+            [
+                "<checkbox>screen reader",
+                "+<radio>font scale",
                 "<checkbox>shoulder-surfing protection (blank screen)",
             ]
         );
+        p.pop_path();
         p.push_path("<radio>color scheme");
         assert_eq!(p.current_path(), "/settings/colorScheme");
         assert_eq!(
@@ -476,10 +800,12 @@ mod tests {
             s.settings.set(KEY_LANGUAGE, "nl-BE");
         }
         p.push_path("Settings");
+        p.push_path("Accessibility");
         assert_eq!(
             texts(&p.fetch())[0],
             tags::format_checkbox_checked("screen reader")
         );
+        p.pop_path();
         p.push_path("<radio>language");
         assert_eq!(
             texts(&p.fetch())[1],
@@ -516,7 +842,10 @@ mod tests {
         // and fetch: both must show the same thing.
         let (mut p, _) = provider();
         let root = p.fetch();
-        for (i, label) in ["Windows", "Controls", "Settings"].iter().enumerate() {
+        for (i, label) in ["Notifications", "Windows", "Controls", "Status", "Settings"]
+            .iter()
+            .enumerate()
+        {
             let nested = root[i].as_obj().unwrap().children.clone();
             p.push_path(label);
             assert_eq!(texts(&nested), texts(&p.fetch()), "{label}");
@@ -538,7 +867,7 @@ mod tests {
         p.push_path("Elsewhere");
         assert!(p.fetch().is_empty());
         p.set_current_path("/");
-        assert_eq!(p.fetch().len(), 4);
+        assert_eq!(p.fetch().len(), 6);
     }
 
     #[test]
@@ -560,6 +889,168 @@ mod tests {
         shared.lock().unwrap().dirty = true;
         assert!(p.tick());
         assert!(!p.tick());
+    }
+
+    #[test]
+    fn the_bar_settings_are_a_position_and_a_seconds_switch() {
+        let (mut p, shared) = provider();
+        p.push_path("Settings");
+        p.push_path("Bar");
+        assert_eq!(p.current_path(), "/settings/bar");
+        assert_eq!(
+            texts(&p.fetch()),
+            ["+<radio>bar position", "<checkbox>show seconds"]
+        );
+        p.push_path("<radio>bar position");
+        assert_eq!(p.current_path(), "/settings/bar/barPosition");
+        assert_eq!(
+            texts(&p.fetch()),
+            [tags::format_checked("bottom"), "top".to_owned()]
+        );
+        shared.lock().unwrap().bar = BarSettings {
+            position: desicompass_bar_protocol::Edge::Top,
+            seconds: true,
+        };
+        assert_eq!(
+            texts(&p.fetch()),
+            ["bottom".to_owned(), tags::format_checked("top")]
+        );
+        p.pop_path();
+        assert_eq!(
+            texts(&p.fetch())[1],
+            tags::format_checkbox_checked("show seconds")
+        );
+    }
+
+    #[test]
+    fn a_bar_setting_is_queued_like_the_others() {
+        let (mut p, shared) = provider();
+        p.on_radio_change("<radio>bar position", "top");
+        p.on_checkbox_change("show seconds", true);
+        p.on_radio_change("bar position", "left");
+        assert_eq!(
+            shared.lock().unwrap().actions,
+            [
+                Action::Set(bar::KEY_POSITION, "top".into()),
+                Action::Set(bar::KEY_SECONDS, "true".into()),
+            ]
+        );
+    }
+
+    fn status() -> StatusSnapshot {
+        use desicompass_bar_protocol::status::{Audio, Battery, Bluetooth, Network};
+        StatusSnapshot {
+            network: Some(Network {
+                kind: NetworkKind::Wireless,
+                connectivity: Connectivity::Limited,
+                strength: Some(72),
+            }),
+            audio: Some(Audio {
+                volume: 45,
+                muted: false,
+            }),
+            battery: Some(Battery {
+                percent: 81,
+                state: BatteryState::Charging,
+            }),
+            bluetooth: Some(Bluetooth {
+                powered: true,
+                connected: 2,
+            }),
+            notifications: vec![
+                Notification {
+                    id: 7,
+                    app: "Mail".into(),
+                    summary: "New message".into(),
+                    body: "Hello\nthere <b>you</b>".into(),
+                },
+                Notification {
+                    id: 9,
+                    app: String::new(),
+                    summary: "Backup done".into(),
+                    body: String::new(),
+                },
+            ],
+            tray: vec![TrayItem {
+                service: ":1.42".into(),
+                path: "/org/ayatana/NotificationItem/dropbox".into(),
+                title: "Dropbox".into(),
+            }],
+        }
+    }
+
+    #[test]
+    fn status_says_in_words_what_the_bar_shows() {
+        let (mut p, shared) = provider();
+        {
+            let mut s = shared.lock().unwrap();
+            s.status = status();
+            s.clock = "Wednesday 30 September 2026, 14:05".into();
+        }
+        p.push_path("Status");
+        assert_eq!(p.current_path(), "/status");
+        assert_eq!(
+            texts(&p.fetch()),
+            [
+                "Wednesday 30 September 2026, 14:05",
+                "Network: wireless, signal 72%, no internet",
+                "Volume: 45%",
+                "Battery: 81%, charging",
+                "Bluetooth: on, 2 connected",
+                "+Tray",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_service_that_is_not_there_has_no_row() {
+        let (mut p, _) = provider();
+        p.push_path("Status");
+        assert_eq!(
+            texts(&p.fetch()),
+            ["+Tray"],
+            "no clock yet, no services, nothing to list"
+        );
+        p.push_path("Tray");
+        assert_eq!(texts(&p.fetch()), ["Nothing in the tray"]);
+        p.set_current_path("/");
+        p.push_path("Notifications (0) [n]");
+        assert_eq!(texts(&p.fetch()), ["No notifications"]);
+    }
+
+    #[test]
+    fn notifications_are_buttons_that_dismiss_them() {
+        let (mut p, shared) = provider();
+        shared.lock().unwrap().status = status();
+        assert_eq!(texts(&p.fetch())[0], "+Notifications (2) [n]");
+        // Entered by the label it had, even after the count has changed.
+        p.push_path("Notifications (5) [n]");
+        assert_eq!(p.current_path(), "/notifications");
+        assert_eq!(
+            texts(&p.fetch()),
+            [
+                "<button>notifications:dismiss-all</button>Dismiss all",
+                "<button>notification:7</button>Mail: New message, Hello there you",
+                "<button>notification:9</button>Backup done",
+            ]
+        );
+        p.pop_path();
+        p.push_path("Status");
+        p.push_path("Tray");
+        assert_eq!(
+            texts(&p.fetch()),
+            ["<button>tray::1.42 /org/ayatana/NotificationItem/dropbox</button>Dropbox"]
+        );
+    }
+
+    #[test]
+    fn a_nested_status_carries_the_same_rows_as_its_fetch() {
+        let (mut p, shared) = provider();
+        shared.lock().unwrap().status = status();
+        let root = p.fetch();
+        let nested = root[3].as_obj().unwrap().children.clone();
+        p.push_path("Status");
+        assert_eq!(texts(&nested), texts(&p.fetch()));
     }
 
     #[test]

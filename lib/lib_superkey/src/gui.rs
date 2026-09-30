@@ -7,7 +7,11 @@
 //!   as `focus`, `spawn`, `hide` and `quit-session`;
 //! * with the rest of the session, over the shared accessibility object
 //!   ([`SharedAccessibility`]): a setting changed here is written there, and
-//!   one changed by sicompass is followed here.
+//!   one changed by sicompass is followed here;
+//! * with the bar, over two files and the session bus: its settings
+//!   ([`BarSettingsFile`]) are written here, its status ([`StatusFile`]) is
+//!   read here for the Status section, and dismissing a notification or
+//!   activating a tray item is a D-Bus call ([`StatusActions`]).
 //!
 //! The superkey never starts or stops a screen reader. In the session, that is
 //! sicompass's job alone; a second owner would start a second Orca.
@@ -15,6 +19,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use desicompass_bar_protocol::clock::{LocalTime, long_text};
+use desicompass_bar_protocol::settings::{BarSettings, BarSettingsFile};
+use desicompass_bar_protocol::status::StatusFile;
 use desicompass_superkey_protocol::{FromSuperkey, Section, ToSuperkey, WindowInfo};
 use sicompass_sdk::ffon::IdArray;
 use sicompass_ui::accessibility::{
@@ -30,6 +37,7 @@ use crate::i18n::{t, t_with};
 use crate::ipc::Ipc;
 use crate::power;
 use crate::provider::{Shared, SharedState, SuperkeyProvider, setting_label, value_label};
+use crate::status::StatusActions;
 
 /// Where the cursor lands for `section`, as the renderer addresses rows:
 /// `[provider, row]` at the root, `[provider, section, row]` inside one.
@@ -39,10 +47,12 @@ use crate::provider::{Shared, SharedState, SuperkeyProvider, setting_label, valu
 pub fn landing(section: Section, windows: &[WindowInfo]) -> IdArray {
     let parts: &[usize] = match section {
         Section::Root => &[0, 0],
-        Section::Windows if windows.len() >= 2 => &[0, 0, 1],
-        Section::Windows => &[0, 0, 0],
-        Section::Controls => &[0, 1, 0],
-        Section::Settings => &[0, 2, 0],
+        Section::Notifications => &[0, 0, 0],
+        Section::Windows if windows.len() >= 2 => &[0, 1, 1],
+        Section::Windows => &[0, 1, 0],
+        Section::Controls => &[0, 2, 0],
+        Section::Status => &[0, 3, 0],
+        Section::Settings => &[0, 4, 0],
     };
     let mut id = IdArray::new();
     for &p in parts {
@@ -58,6 +68,11 @@ pub struct SuperkeyHooks {
     access: Mutex<SharedAccessibility>,
     catalogue: Mutex<Catalogue>,
     power: power::Commands,
+    bar: Mutex<BarSettingsFile>,
+    status: Mutex<StatusFile>,
+    actions: Box<dyn StatusActions>,
+    /// The minute the Status section's clock was last set for.
+    clock_minute: Mutex<Option<(u32, u32)>>,
     font_scale: Mutex<f32>,
     /// Standalone (no compositor): Escape quits instead of hiding.
     standalone: bool,
@@ -89,6 +104,26 @@ impl HostHooks for SuperkeyHooks {
     }
 }
 
+/// The superkey's view of the bar: its settings file, its status file, and
+/// the calls the Status section makes.
+pub struct BarLink {
+    pub settings: BarSettingsFile,
+    pub status: StatusFile,
+    pub actions: Box<dyn StatusActions>,
+}
+
+impl BarLink {
+    /// The session's: the user's settings file, this session's status file,
+    /// and the session bus.
+    pub fn session() -> Self {
+        Self {
+            settings: BarSettingsFile::open_default(),
+            status: StatusFile::open(desicompass_bar_protocol::status::default_path()),
+            actions: Box::new(crate::status::DbusActions::new()),
+        }
+    }
+}
+
 impl SuperkeyHooks {
     pub fn new(
         shared: SharedState,
@@ -96,6 +131,7 @@ impl SuperkeyHooks {
         access: SharedAccessibility,
         catalogue: Catalogue,
         power: power::Commands,
+        bar: BarLink,
         standalone: bool,
     ) -> Self {
         let font_scale = accessibility::font_scale_value(access.effective().font_scale.as_deref());
@@ -105,6 +141,10 @@ impl SuperkeyHooks {
             access: Mutex::new(access),
             catalogue: Mutex::new(catalogue),
             power,
+            bar: Mutex::new(bar.settings),
+            status: Mutex::new(bar.status),
+            actions: bar.actions,
+            clock_minute: Mutex::new(None),
             font_scale: Mutex::new(font_scale),
             standalone,
             quit: AtomicBool::new(false),
@@ -141,6 +181,43 @@ impl SuperkeyHooks {
             }
             self.refresh_settings();
         }
+        if self.bar.lock().unwrap_or_else(|e| e.into_inner()).poll() {
+            self.refresh_bar();
+        }
+        let status = {
+            let mut f = self.status.lock().unwrap_or_else(|e| e.into_inner());
+            f.poll().then(|| f.get().clone())
+        };
+        if let Some(status) = status {
+            let mut s = self.shared();
+            s.status = status;
+            s.dirty = true;
+        }
+        if let Some(e) = self.actions.take_error() {
+            self.shared().error = Some(t_with("superkey-status-failed", &[("error", &e)]));
+        }
+        self.tick_clock();
+    }
+
+    /// The Status section's clock, moved on the minute: a row that changed
+    /// every second would be read out again every second.
+    fn tick_clock(&self) {
+        let now = LocalTime::now();
+        let minute = (now.hour, now.minute);
+        let mut last = self.clock_minute.lock().unwrap_or_else(|e| e.into_inner());
+        if *last == Some(minute) {
+            return;
+        }
+        *last = Some(minute);
+        let language = self
+            .shared()
+            .settings
+            .language
+            .clone()
+            .unwrap_or_else(|| "en-US".to_owned());
+        let mut s = self.shared();
+        s.clock = long_text(&now, &language);
+        s.dirty = true;
     }
 
     fn on_message(&self, r: &mut AppRenderer, msg: ToSuperkey) {
@@ -213,21 +290,67 @@ impl SuperkeyHooks {
             }
             Action::Logout => self.send(&FromSuperkey::QuitSession),
             Action::Toggle(key) => {
-                let on = self.shared().settings.get(key).as_deref() == Some("true");
+                let on = {
+                    let s = self.shared();
+                    if BarSettings::is_key(key) {
+                        s.bar.get(key)
+                    } else {
+                        s.settings.get(key)
+                    }
+                }
+                .as_deref()
+                    == Some("true");
                 self.change(r, key, if on { "false" } else { "true" });
             }
             Action::Set(key, value) => self.change(r, key, &value),
+            Action::Dismiss(id) => self.dismiss_notifications(&[id]),
+            Action::DismissAll => {
+                let ids: Vec<u32> = self
+                    .shared()
+                    .status
+                    .notifications
+                    .iter()
+                    .map(|n| n.id)
+                    .collect();
+                self.dismiss_notifications(&ids);
+            }
+            Action::Activate { service, path } => {
+                self.actions.activate(&service, &path);
+                // What it opens should be seen, and it waits behind the
+                // superkey until the superkey closes.
+                self.send(&FromSuperkey::Hide);
+                r.suspended = !self.standalone;
+            }
         }
+    }
+
+    /// Ask the bar to dismiss these, and take them off the list at once
+    /// rather than when the bar's next status arrives.
+    fn dismiss_notifications(&self, ids: &[u32]) {
+        for &id in ids {
+            self.actions.close_notification(id);
+        }
+        let mut s = self.shared();
+        s.status.notifications.retain(|n| !ids.contains(&n.id));
+        s.announcement = Some(t("superkey-notification-dismissed"));
+        s.dirty = true;
     }
 
     /// A setting chosen here: save it to the shared object, apply it here,
     /// and say so.
     fn change(&self, r: &mut AppRenderer, key: &'static str, value: &str) {
-        let saved = self
-            .access
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .set(key, value);
+        let is_bar = BarSettings::is_key(key);
+        let saved = if is_bar {
+            self.bar
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .set(key, value)
+        } else {
+            self.access
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .set(key, value)
+        };
         if let Err(e) = saved {
             self.shared().error = Some(t_with(
                 "superkey-setting-failed",
@@ -235,8 +358,13 @@ impl SuperkeyHooks {
             ));
             return;
         }
-        self.apply(r, key, value);
-        self.refresh_settings();
+        if is_bar {
+            // The bar follows the file; nothing changes in this window.
+            self.refresh_bar();
+        } else {
+            self.apply(r, key, value);
+            self.refresh_settings();
+        }
         // A language change is announced by the renderer, in the new voice.
         if key != KEY_LANGUAGE {
             let v = value_label(key, value);
@@ -270,6 +398,14 @@ impl SuperkeyHooks {
                 r.speak_language_change();
             }
         }
+    }
+
+    /// The bar's settings as the list shows them, after a change.
+    fn refresh_bar(&self) {
+        let current = self.bar.lock().unwrap_or_else(|e| e.into_inner()).get();
+        let mut s = self.shared();
+        s.bar = current;
+        s.dirty = true;
     }
 
     /// The settings as the list shows them, after a change.
@@ -315,6 +451,7 @@ pub fn build(
     catalogue: Catalogue,
     ipc: Option<Ipc>,
     power: power::Commands,
+    bar: BarLink,
     standalone: bool,
 ) -> (SuperkeyProvider, SuperkeyHooks, AccessibilitySettings) {
     crate::i18n::init();
@@ -327,10 +464,12 @@ pub fn build(
     let shared: SharedState = Arc::new(Mutex::new(Shared {
         apps: catalogue.apps().to_vec(),
         settings: settings.clone(),
+        bar: bar.settings.get(),
+        status: bar.status.get().clone(),
         ..Shared::default()
     }));
     let provider = SuperkeyProvider::new(Arc::clone(&shared));
-    let hooks = SuperkeyHooks::new(shared, ipc, access, catalogue, power, standalone);
+    let hooks = SuperkeyHooks::new(shared, ipc, access, catalogue, power, bar, standalone);
     (provider, hooks, settings)
 }
 
@@ -348,8 +487,14 @@ pub fn run(opts: Options) -> Result<(), String> {
         Some(Catalogue::locale_for(&language)),
         Catalogue::current_desktops(),
     );
-    let (provider, hooks, settings) =
-        build(access, catalogue, opts.ipc, opts.power, opts.standalone);
+    let (provider, hooks, settings) = build(
+        access,
+        catalogue,
+        opts.ipc,
+        opts.power,
+        BarLink::session(),
+        opts.standalone,
+    );
     let font_scale = hooks.read_font_scale();
 
     let cfg = AppConfig {
@@ -406,10 +551,12 @@ mod tests {
         let one = [WindowInfo::new(1, "a", "a", true)];
         let two = [one[0].clone(), WindowInfo::new(2, "b", "b", false)];
         assert_eq!(parts(&landing(Section::Root, &two)), [0, 0]);
-        assert_eq!(parts(&landing(Section::Windows, &two)), [0, 0, 1]);
-        assert_eq!(parts(&landing(Section::Windows, &one)), [0, 0, 0]);
-        assert_eq!(parts(&landing(Section::Windows, &[])), [0, 0, 0]);
-        assert_eq!(parts(&landing(Section::Controls, &two)), [0, 1, 0]);
-        assert_eq!(parts(&landing(Section::Settings, &two)), [0, 2, 0]);
+        assert_eq!(parts(&landing(Section::Notifications, &two)), [0, 0, 0]);
+        assert_eq!(parts(&landing(Section::Windows, &two)), [0, 1, 1]);
+        assert_eq!(parts(&landing(Section::Windows, &one)), [0, 1, 0]);
+        assert_eq!(parts(&landing(Section::Windows, &[])), [0, 1, 0]);
+        assert_eq!(parts(&landing(Section::Controls, &two)), [0, 2, 0]);
+        assert_eq!(parts(&landing(Section::Status, &two)), [0, 3, 0]);
+        assert_eq!(parts(&landing(Section::Settings, &two)), [0, 4, 0]);
     }
 }

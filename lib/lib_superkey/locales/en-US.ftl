@@ -44,3 +44,35 @@ superkey-language-en-US = English
 superkey-language-nl-BE = Nederlands (België)
 superkey-language-fr-BE = Français (Belgique)
 superkey-language-de-BE = Deutsch (Belgien)
+
+# Settings is two groups: the session's accessibility, then the bar.
+superkey-group-accessibility = Accessibility
+superkey-group-bar = Bar
+superkey-setting-bar-position = bar position
+superkey-setting-bar-seconds = show seconds
+superkey-bar-bottom = bottom
+superkey-bar-top = top
+
+# The Status section: what the bar's icons show, in words.
+superkey-section-status = Status
+superkey-status-notifications = Notifications ({ $count })
+superkey-status-tray = Tray
+superkey-no-notifications = No notifications
+superkey-dismiss-all = Dismiss all
+superkey-notification-dismissed = Dismissed
+superkey-tray-empty = Nothing in the tray
+superkey-status-failed = That did not work: { $error }
+superkey-network-wired = Network: wired
+superkey-network-wireless = Network: wireless
+superkey-network-wireless-signal = Network: wireless, signal { $strength }%
+superkey-network-other = Network: connected
+superkey-network-none = Network: not connected
+superkey-network-no-internet = no internet
+superkey-volume = Volume: { $percent }%
+superkey-volume-muted = Volume: muted
+superkey-battery = Battery: { $percent }%
+superkey-battery-charging = Battery: { $percent }%, charging
+superkey-battery-full = Battery: full
+superkey-bluetooth-off = Bluetooth: off
+superkey-bluetooth-on = Bluetooth: on
+superkey-bluetooth-connected = Bluetooth: on, { $count } connected

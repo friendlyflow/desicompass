@@ -26,9 +26,13 @@
 //! | `Super+Shift+E` | end the session (press twice, on separate presses) |
 //! | `Super` (tapped alone) | open or close the superkey |
 //! | `Super+W` / `Super+C` / `Super+S` | open the superkey on windows / controls / settings |
+//! | `Super+B` / `Super+N` | open the superkey on the status / the notifications |
+//! | `Super+T` | say the time |
 
 #[cfg(target_os = "linux")]
 mod a11y_keyboard_monitor;
+#[cfg(target_os = "linux")]
+mod bar;
 #[cfg(target_os = "linux")]
 mod focus;
 #[cfg(target_os = "linux")]
@@ -37,6 +41,8 @@ mod gpu;
 mod keybindings;
 #[cfg(target_os = "linux")]
 mod layout;
+#[cfg(target_os = "linux")]
+mod managed_client;
 #[cfg(target_os = "linux")]
 mod startup;
 #[cfg(target_os = "linux")]
@@ -166,6 +172,7 @@ mod linux {
             xkb: args.xkb_overrides(),
             terminal: args.terminal.clone(),
             superkey_cmd: crate::superkey::resolve_command(),
+            bar_cmd: crate::bar::resolve_command(),
         }
     }
 
@@ -222,6 +229,7 @@ mod linux {
             output.clone(),
             Gpu::Winit(Box::new(backend)),
             crate::superkey::resolve_command(),
+            crate::bar::resolve_command(),
         );
 
         // Advertise zwp_linux_dmabuf_v1 with per-surface feedback.
@@ -437,6 +445,7 @@ mod linux {
 
             state.send_superkey_frame_if_unmapped();
             state.maintain_superkey();
+            state.maintain_bar();
             state.reap_children();
             state.space.refresh();
             state.popups.cleanup();

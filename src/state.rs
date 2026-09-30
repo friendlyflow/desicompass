@@ -26,7 +26,7 @@ use smithay::{
             protocol::{wl_buffer::WlBuffer, wl_seat::WlSeat, wl_surface::WlSurface},
         },
     },
-    utils::{Logical, Rectangle, Serial, Size},
+    utils::{Logical, Serial, Size},
     wayland::{
         buffer::BufferHandler,
         compositor::{
@@ -49,6 +49,7 @@ use smithay::{
 };
 use tracing::{debug, error, info, warn};
 
+use crate::bar::Bar;
 use crate::focus::{FocusStack, WindowId};
 use crate::gpu::Gpu;
 use crate::keybindings::{self, BindingAction, Mods, SuperTap};
@@ -142,6 +143,10 @@ pub struct State {
     // ---- Superkey ----
     /// The superkey window and the process behind it. See `superkey.rs`.
     pub superkey: Superkey,
+
+    // ---- Bar ----
+    /// The bar window and the process behind it. See `bar.rs`.
+    pub bar: Bar,
 }
 
 impl State {
@@ -152,6 +157,7 @@ impl State {
         output: Output,
         backend: Gpu,
         superkey_cmd: Option<String>,
+        bar_cmd: Option<String>,
     ) -> Self {
         let compositor_state = CompositorState::new::<Self>(display);
         let xdg_shell_state = XdgShellState::new::<Self>(display);
@@ -192,6 +198,7 @@ impl State {
             socket_name: String::new(),
             children: Vec::new(),
             superkey: Superkey::new(superkey_cmd),
+            bar: Bar::new(bar_cmd),
             output,
         }
     }
@@ -215,11 +222,15 @@ impl State {
             .unwrap_or_else(|| (800, 600).into())
     }
 
-    /// The window owning `surface`, if any. The superkey's counts, mapped or
-    /// not: its commits have to reach it while it is off screen too.
+    /// The window owning `surface`, if any. The superkey's and the bar's
+    /// count, mapped or not: the superkey's commits have to reach it while it
+    /// is off screen too.
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<Window> {
         if self.superkey.owns_surface(surface) {
             return self.superkey.window().cloned();
+        }
+        if self.bar.owns_surface(surface) {
+            return self.bar.window().cloned();
         }
         self.space
             .elements()
@@ -289,8 +300,10 @@ impl State {
     /// minimised and draws nothing until a real size arrives.
     pub fn relayout(&mut self) {
         self.relayout_tiles();
-        // Last: mapping a tile puts it on top, and the superkey, when shown,
-        // belongs above every tile.
+        // Then the bar, beside the tiles, and last the superkey: mapping a
+        // tile puts it on top, and the superkey, when shown, belongs above
+        // every tile and the bar.
+        self.place_bar();
         self.place_superkey();
     }
 
@@ -298,7 +311,7 @@ impl State {
         if self.tiler.is_empty() {
             return;
         }
-        let area = Rectangle::new((0, 0).into(), self.output_size());
+        let area = self.usable_area();
         debug!(
             "relayout: {:?}, {} window(s), order {:?}",
             self.tiler.layout(),
@@ -383,7 +396,8 @@ impl State {
             .env("WAYLAND_DISPLAY", &self.socket_name)
             .env_remove("DISPLAY")
             .env_remove("WAYLAND_SOCKET")
-            .env_remove(desicompass_superkey_protocol::ENV_IPC_FD);
+            .env_remove(desicompass_superkey_protocol::ENV_IPC_FD)
+            .env_remove(desicompass_bar_protocol::ENV_IPC_FD);
         match cwd
             .map(std::path::PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(Into::into))
@@ -493,7 +507,10 @@ pub fn apply_keybinding(
     // the window that had it, as if the superkey had never opened.
     if !matches!(
         action,
-        BindingAction::Superkey(_) | BindingAction::PassThrough | BindingAction::Quit
+        BindingAction::Superkey(_)
+            | BindingAction::PassThrough
+            | BindingAction::Quit
+            | BindingAction::SayTime
     ) {
         state.hide_superkey(true);
     }
@@ -559,6 +576,7 @@ pub fn apply_keybinding(
         BindingAction::CloseWindow => state.close_focused(),
         BindingAction::Spawn => state.spawn(),
         BindingAction::Quit => state.request_quit(),
+        BindingAction::SayTime => state.say_time(),
         BindingAction::Superkey(Section::Root) => state.toggle_superkey(),
         BindingAction::Superkey(section) => state.show_superkey(section),
     }
@@ -644,12 +662,15 @@ fn ensure_initial_configure(state: &mut State, surface: &WlSurface) {
                     .unwrap_or(true)
             });
             if !already_sent {
-                // The superkey fills the output as its own screen; everything
-                // else fills it too until the tiler says otherwise.
+                // The superkey fills the output as its own screen, the bar
+                // its strip, and everything else what the bar leaves until the
+                // tiler says otherwise.
                 let size = if state.superkey.owns_surface(surface) {
                     crate::superkey::superkey_rect(state.output_size()).size
+                } else if state.bar.owns_surface(surface) {
+                    state.bar_initial_size()
                 } else {
-                    state.output_size()
+                    state.usable_area().size
                 };
                 toplevel.with_pending_state(|s| {
                     s.size = Some(size);
@@ -688,8 +709,10 @@ impl XdgShellHandler for State {
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
         let client = surface.wl_surface().client().map(|c| c.id());
         let window = Window::new_wayland_window(surface);
-        if self.superkey.is_superkey_client(client) {
+        if self.superkey.is_superkey_client(client.clone()) {
             self.adopt_superkey_window(window);
+        } else if self.bar.is_bar_client(client) {
+            self.adopt_bar_window(window);
         } else {
             self.add_window(window);
         }
@@ -698,6 +721,8 @@ impl XdgShellHandler for State {
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         if self.superkey.owns_surface(surface.wl_surface()) {
             self.superkey_window_destroyed();
+        } else if self.bar.owns_surface(surface.wl_surface()) {
+            self.bar_window_destroyed();
         } else if let Some(id) = self.id_for_surface(surface.wl_surface()) {
             self.remove_window(id);
         }
@@ -764,7 +789,7 @@ impl XdgShellHandler for State {
         // The default implementation configures whatever the client asked
         // for, which would let it size itself out of its tile. Answer with
         // our own geometry instead: every window is already maximised here.
-        let size = self.output_size();
+        let size = self.usable_area().size;
         surface.with_pending_state(|state| {
             state.size = Some(size);
             state.states.set(xdg_toplevel::State::Maximized);
@@ -777,7 +802,9 @@ impl XdgShellHandler for State {
         surface: ToplevelSurface,
         _output: Option<smithay::reexports::wayland_server::protocol::wl_output::WlOutput>,
     ) {
-        let size = self.output_size();
+        // What the bar leaves, like every other size here: the window stays
+        // in its tile, so the whole output would put its bottom off screen.
+        let size = self.usable_area().size;
         surface.with_pending_state(|state| {
             state.size = Some(size);
             state.states.set(xdg_toplevel::State::Fullscreen);

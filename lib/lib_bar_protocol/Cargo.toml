@@ -1,0 +1,24 @@
+[package]
+# Internal to this workspace: the compositor, desicompass-bar and
+# desicompass-superkey link it, nothing else does.
+publish = false
+name = "desicompass-bar-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The messages desicompass and its bar exchange, the bar's settings and its status"
+repository.workspace = true
+
+# A crate of its own, for the same reason as the superkey's protocol: the
+# compositor and the superkey speak to the bar without depending on it, and
+# the bar links SDL3, Vulkan and zbus.
+[dependencies]
+desicompass-superkey-protocol = { path = "../lib_superkey_protocol" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+# localtime_r, for the clock. Already in the lock.
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

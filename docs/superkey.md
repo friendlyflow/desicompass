@@ -2,7 +2,8 @@
 
 `desicompass-superkey` (`lib/lib_superkey`) is the list a bare Super tap opens:
 the open windows, the controls (suspend, restart, shut down, log out), the
-accessibility settings, then every installed program. It is a sicompass-ui
+settings (accessibility, then the bar), the status the bar shows, then every
+installed program. It is a sicompass-ui
 client, like the login screen, and it never links the Sicompass application.
 
 This document is about how the compositor and the superkey work together. The
@@ -13,14 +14,15 @@ user-facing side is in the README.
 | | Compositor (`src/superkey.rs`) | Superkey (`lib/lib_superkey`) |
 |---|---|---|
 | Starting | Finds it (`superkey::resolve_command`), runs it once, restarts it with a back-off, gives up after 5 starts in 60 s | Says `hello` |
-| Keys | Detects the bare Super tap (`keybindings::SuperTap`), binds Super+W/C/S | Everything typed while it has the keyboard |
+| Keys | Detects the bare Super tap (`keybindings::SuperTap`), binds Super+W/C/S/B/N | Everything typed while it has the keyboard |
 | Placing | Keeps its toplevel out of the tiler, the window list and the focus stack. Gives it the whole output, full screen, on top | Nothing: it is told its size |
 | Showing | Sends `show`, moves the keyboard to it, maps it on its next frame | Opens the section in simple search, draws again |
 | Hiding | Unmaps it, sends `hidden`, gives the keyboard back | Stops drawing (`AppRenderer::suspended`) |
 | Windows | Sends the list, most recently used first, and again when it changes | Lists them. Enter sends `focus` |
 | Programs | Starts them (`spawn`), as its own children | Finds them in the desktop entries. Enter sends `spawn` |
 | Controls | Ends the session on `quit-session` | Runs `systemctl` itself for suspend, restart and shut down |
-| Settings | Nothing | Reads and writes the shared accessibility object |
+| Settings | Nothing | Reads and writes the shared accessibility object, and the bar's settings |
+| Status | Nothing | Reads the bar's status file. Dismisses notifications and activates tray items over the session bus |
 
 ## Finding it
 
@@ -54,7 +56,7 @@ The compositor makes two socketpairs before it starts the superkey:
 
 ```text
 compositor -> superkey
-  {"type":"show","section":"root|windows|controls|settings","windows":[{"id":3,"title":"foot","app_id":"foot","focused":true}]}
+  {"type":"show","section":"root|notifications|windows|controls|settings|status","windows":[{"id":3,"title":"foot","app_id":"foot","focused":true}]}
   {"type":"windows","windows":[...]}     the list changed while it is shown
   {"type":"hidden"}                      sent on every hide
 superkey -> compositor
@@ -90,22 +92,50 @@ showing's list does not flash up.
 
 ## The settings it shows
 
-The Settings section is the accessibility object the login screen and every
-session share, `/var/lib/sicompass/accessibility.json`, which sicompass and
+The Settings section (Super+S) is a radio group each for the colour scheme and
+the language, then two groups, Accessibility and Bar. The colour scheme and the
+language are not accessibility, but they live in the same shared object below,
+and the login screen shows them too.
+
+**Bar** is the bar's own settings, a radio group for its position (bottom, top)
+and a checkbox for seconds on its clock. They are the user's, in
+`$XDG_CONFIG_HOME/desicompass/bar.json`, which the bar follows (see
+[bar.md](bar.md)).
+
+**Accessibility**, and the colour scheme and language above it, are the object
+the login screen and every session share, `/var/lib/sicompass/accessibility.json`, which sicompass and
 loginsicompass read and write too
 (`sicompass_ui::accessibility::SharedAccessibility`). A change made in any of
 them is written there atomically, under a lock, and the others follow it on
 their next poll. Below it sit the machine's defaults,
 `/etc/sicompass/accessibility.json`, which nothing writes at runtime.
 
-The rows are the app's own settings page: a checkbox for the screen reader and
-for shoulder-surfing protection, a radio group each for the font scale, the
-colour scheme and the language. Enter ticks a checkbox or chooses an option.
+Accessibility's rows are a checkbox for the screen reader and for
+shoulder-surfing protection, and a radio group for the font scale. Enter ticks a
+checkbox or chooses an option.
 
 The superkey applies the display settings to itself (colour scheme, font scale,
 shoulder-surfing protection, language), but never starts or stops a screen
 reader. In the session, sicompass owns Orca, and a second owner would start a
 second Orca.
+
+## The status it shows
+
+The Status section says in words what the bar's icons show: the date and time
+(moved on the minute, so a focused clock row is not read out every second), the
+network, the volume, the battery and Bluetooth when the machine has them, then
+**Tray**. Super+B opens it. It reads them from the status file the bar writes,
+`$XDG_RUNTIME_DIR/desicompass/status-<WAYLAND_DISPLAY>.json`, and so does the
+**Notifications (n)** section, first in the root, which Super+N opens.
+
+Each section's label in the root ends in its key (`Status [b]`), and the
+provider recognises a label with or without it and whatever the count.
+
+Enter on a notification dismisses it (`CloseNotification` to the bar, which is
+the notification server), and "Dismiss all" all of them. Enter on a tray item
+calls its `Activate` and closes the superkey. Both calls run on a thread of
+their own (`status.rs`), so an item that hangs cannot freeze the list, and an
+error is shown when it comes back.
 
 ## Trying it
 

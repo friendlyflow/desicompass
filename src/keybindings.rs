@@ -66,10 +66,12 @@ pub enum BindingAction {
     /// Request to end the session. Confirmed by pressing it twice; see
     /// `State::request_quit`.
     Quit,
-    /// Open the superkey on one of its sections (Super+W, Super+C, Super+S).
-    /// `Section::Root` is never bound to a chord: it is the bare Super tap,
-    /// which [`SuperTap`] detects.
+    /// Open the superkey on one of its sections (Super+W, Super+C, Super+S,
+    /// Super+B, Super+N). `Section::Root` is never bound to a chord: it is the bare
+    /// Super tap, which [`SuperTap`] detects.
     Superkey(Section),
+    /// Have the bar say the time out loud (Super+T).
+    SayTime,
     /// No binding matched; the key belongs to the focused client.
     PassThrough,
 }
@@ -106,6 +108,11 @@ pub fn evaluate(mods: Mods, keysym: u32) -> BindingAction {
         (keysyms::KEY_w, false) => BindingAction::Superkey(Section::Windows),
         (keysyms::KEY_c, false) => BindingAction::Superkey(Section::Controls),
         (keysyms::KEY_s, false) => BindingAction::Superkey(Section::Settings),
+        (keysyms::KEY_b, false) => BindingAction::Superkey(Section::Status),
+        (keysyms::KEY_n, false) => BindingAction::Superkey(Section::Notifications),
+
+        // The time, spoken. Harmless too: it changes nothing.
+        (keysyms::KEY_t, false) => BindingAction::SayTime,
 
         // Both destructive actions need Shift. Closing a window or ending the
         // session on a single unshifted chord is too easy to hit by accident
@@ -400,6 +407,35 @@ mod tests {
             BindingAction::PassThrough
         );
     }
+    #[test]
+    fn super_t_says_the_time_and_only_unshifted() {
+        assert_eq!(evaluate(sup(), keysyms::KEY_t), BindingAction::SayTime);
+        assert_eq!(
+            evaluate(sup_shift(), keysyms::KEY_t),
+            BindingAction::PassThrough
+        );
+        assert_eq!(
+            evaluate(Mods::default(), keysyms::KEY_t),
+            BindingAction::PassThrough
+        );
+    }
+
+    #[test]
+    fn super_b_opens_the_status_and_super_n_the_notifications() {
+        assert_eq!(
+            evaluate(sup(), keysyms::KEY_b),
+            BindingAction::Superkey(Section::Status)
+        );
+        assert_eq!(
+            evaluate(sup(), keysyms::KEY_n),
+            BindingAction::Superkey(Section::Notifications)
+        );
+        for sym in [keysyms::KEY_b, keysyms::KEY_n] {
+            assert_eq!(evaluate(sup_shift(), sym), BindingAction::PassThrough);
+            assert_eq!(evaluate(Mods::default(), sym), BindingAction::PassThrough);
+        }
+    }
+
     #[test]
     fn super_w_c_s_open_the_superkey_sections() {
         assert_eq!(

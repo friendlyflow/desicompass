@@ -1,8 +1,8 @@
 # The compositor is the root package, and its superkey lives beside it in
 # lib/. `cargo test` and `cargo clippy` cover all of them (default-members).
 [workspace]
-members = [".", "lib/lib_superkey", "lib/lib_superkey_protocol"]
-default-members = [".", "lib/lib_superkey", "lib/lib_superkey_protocol"]
+members = [".", "lib/lib_bar", "lib/lib_bar_protocol", "lib/lib_superkey", "lib/lib_superkey_protocol"]
+default-members = [".", "lib/lib_bar", "lib/lib_bar_protocol", "lib/lib_superkey", "lib/lib_superkey_protocol"]
 resolver = "3"
 
 # The one version for everything built here. flake.nix reads it from this
@@ -81,6 +81,10 @@ zbus = { version = "5", default-features = false, features = ["blocking-api", "a
 # The superkey protocol, shared with desicompass-superkey. Serde only: the
 # compositor must never link the superkey itself (SDL3, Vulkan).
 desicompass-superkey-protocol = { path = "lib/lib_superkey_protocol" }
+# The bar's protocol, for the same reason: serde only, never the bar itself
+# (SDL3, Vulkan).
+desicompass-bar-protocol = { path = "lib/lib_bar_protocol" }
+serde = "1"
 serde_json = "1"
 # FD_CLOEXEC on the sockets handed to the superkey. Already in the lock
 # through smithay and calloop.

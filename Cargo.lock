@@ -856,8 +856,10 @@ name = "desicompass"
 version = "0.2.0"
 dependencies = [
  "clap",
+ "desicompass-bar-protocol",
  "desicompass-superkey-protocol",
  "libc",
+ "serde",
  "serde_json",
  "smithay",
  "tracing",
@@ -866,19 +868,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "desicompass-bar"
+version = "0.2.0"
+dependencies = [
+ "ash",
+ "clap",
+ "desicompass-bar-protocol",
+ "image",
+ "libc",
+ "sdl3",
+ "sicompass-sdk",
+ "sicompass-ui",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
+name = "desicompass-bar-protocol"
+version = "0.2.0"
+dependencies = [
+ "desicompass-superkey-protocol",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "desicompass-superkey"
 version = "0.2.0"
 dependencies = [
  "clap",
+ "desicompass-bar-protocol",
  "desicompass-superkey-protocol",
  "libc",
  "sdl3",
+ "serde",
  "serde_json",
  "sicompass-sdk",
  "sicompass-ui",
  "tempfile",
  "tracing",
  "tracing-subscriber",
+ "zbus",
 ]
 
 [[package]]

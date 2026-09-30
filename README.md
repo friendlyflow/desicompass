@@ -30,7 +30,10 @@ non-US layouts the right Alt is AltGr, which you need to type characters like
 | `Super`, tapped on its own | Open or close the superkey |
 | `Super+W` | Open the superkey on the open windows |
 | `Super+C` | Open the superkey on the controls (suspend, restart, shut down, log out) |
-| `Super+S` | Open the superkey on the accessibility settings |
+| `Super+S` | Open the superkey on the settings (accessibility, then the bar) |
+| `Super+B` | Open the superkey on the status the bar shows |
+| `Super+N` | Open the superkey on the notifications |
+| `Super+T` | Say the time out loud |
 
 The keyboard layout comes from systemd-localed, which is where your OS installer
 put it. `--xkb-layout`, `--xkb-variant`, `--xkb-model` and `--xkb-options`
@@ -40,13 +43,20 @@ override it.
 
 The superkey is a screen of its own, full screen over the windows. It is a list you
 search by typing, the way Sicompass searches, and it opens straight into search.
-From the top it holds:
+From the top it holds the sections below, each with the key that opens it with
+Super held after its name (`Status [b]`):
 
+- **Notifications**, with how many there are. Enter dismisses one.
 - **Windows**, most recently used first. `Super+W` then Enter goes back to the
   window you used before this one.
 - **Controls**: suspend, restart, shut down and log out.
-- **Settings**: the screen reader, the font scale, the colour scheme, the
-  language and shoulder-surfing protection.
+- **Status**: what the bar's icons show, in words. The date and time, the
+  network, the volume, the battery and Bluetooth, then **Tray**, where Enter
+  activates an item.
+- **Settings**: the colour scheme and the language, then two groups.
+  **Accessibility** holds the screen reader, the font scale and
+  shoulder-surfing protection. **Bar** holds where the bar sits and whether its
+  clock shows seconds.
 - every installed program, by name.
 
 Enter does what the row is for: it focuses a window, starts a program, runs a
@@ -62,6 +72,36 @@ next to the compositor, where desicompass finds it. The login screen runs
 without it. How the two
 talk is in [docs/superkey.md](docs/superkey.md). To try it on its own, run
 `cargo run -p desicompass-superkey -- --standalone`.
+
+## The bar
+
+The bar is a strip along the bottom of the screen, or the top if you choose so
+in Settings > Bar (`Super+S`). It is 1.7 lines tall, with its line in the middle, and drawn in the colours of
+the list's focused row. The windows are tiled in the rest of the screen.
+
+The date and time sit at the right, with seconds if you turn them on. To their
+left are the notifications (a bell and how many there are), the battery, the
+volume, Bluetooth, the network and then the tray icons of programs like Dropbox.
+Something that is off or wrong has an icon of its own: a slash through
+Bluetooth that is off or a network that is not connected, a crossed speaker when
+muted, an exclamation mark on a network that does not reach the internet. A
+battery, Bluetooth adapter or network service that the machine does not have
+shows no icon at all.
+
+`Super+T` says the time out loud through speech-dispatcher, whether or not a
+screen reader is running. What the icons show is also in the superkey's Status
+section (`Super+B`) and its notifications (`Super+N`), which is how you reach it by keyboard and with a screen reader.
+
+The bar is where that status comes from. It follows NetworkManager, UPower,
+BlueZ and WirePlumber (`wpctl`), and it is the session's notification server
+and tray. Notifications do not pop up: they are kept until you dismiss them.
+Tray items need to run inside the session, started from Sicompass or the
+superkey, because the session has a D-Bus session bus of its own.
+
+It is its own program too, `desicompass-bar` in `lib/lib_bar`, started by
+desicompass like the superkey. The login screen runs without it. How it works
+is in [docs/bar.md](docs/bar.md). To try it on its own, run
+`cargo run -p desicompass-bar -- --standalone`.
 
 ## Install on NixOS
 
@@ -88,7 +128,7 @@ The flake has a NixOS module. Turn it on in two steps, in this order:
 
 The session's output goes to the journal: `journalctl -t desicompass -b`.
 
-The module takes the compositor (with its superkey), Sicompass and the login
+The module takes the compositor (with its superkey and bar), Sicompass and the login
 screen from the revisions this flake pins. To build them from your own checkouts
 instead, set `services.desicompass.package`,
 `services.desicompass.sicompassPackage` and
@@ -197,9 +237,11 @@ cargo test
 ```
 
 The repository is a Cargo workspace: the compositor at the root, the superkey in
-`lib/lib_superkey`, and the protocol between the two in
-`lib/lib_superkey_protocol`. `cargo test` covers all three. `nix build` builds
-the compositor and `nix build .#desicompass-superkey` the superkey.
+`lib/lib_superkey` and the bar in `lib/lib_bar`, each with the protocol it
+speaks with the compositor beside it (`lib/lib_superkey_protocol`,
+`lib/lib_bar_protocol`). `cargo test` covers all five. `nix build` builds the
+compositor, `nix build .#desicompass-superkey` the superkey and
+`nix build .#desicompass-bar` the bar.
 
 Every build has both backends, the nested one and the one that takes over a real
 display (DRM/KMS, libinput, libseat), so it needs those libraries. The dev shell

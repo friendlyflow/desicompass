@@ -1,6 +1,6 @@
 //! The superkey: a window of its own (desicompass-superkey, drawn by
 //! sicompass-ui) that the compositor starts once per session and shows on a
-//! bare Super tap, Super+W, Super+C or Super+S.
+//! bare Super tap, Super+W, Super+C, Super+S, Super+B or Super+N.
 //!
 //! It is a client, but not an ordinary one:
 //!
@@ -18,44 +18,40 @@
 //! which stops drawing. Nothing is torn down, so showing it again is instant.
 //! See `docs/superkey.md`.
 
-use std::io::{ErrorKind, Read, Write};
-use std::os::fd::{AsRawFd, RawFd};
-use std::os::unix::net::UnixStream;
-use std::os::unix::process::CommandExt;
+use std::ops::{Deref, DerefMut};
+#[cfg(test)]
+use std::os::fd::RawFd;
+#[cfg(test)]
 use std::path::Path;
-use std::process::{Child, Command};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use desicompass_superkey_protocol::{
-    ENV_IPC_FD, FromSuperkey, LineDecoder, Section, ToSuperkey, VERSION, WindowInfo, encode,
+    ENV_IPC_FD, FromSuperkey, Section, ToSuperkey, VERSION, WindowInfo,
 };
 use smithay::{
     desktop::Window,
     reexports::{
-        calloop::{Interest, Mode, PostAction, RegistrationToken, generic::Generic},
         wayland_protocols::xdg::shell::server::xdg_toplevel,
         wayland_server::{backend::ClientId, protocol::wl_surface::WlSurface},
     },
     utils::{Logical, Point, Rectangle, Serial, Size},
     wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use crate::focus::WindowId;
-use crate::state::{ClientState, State};
+use crate::managed_client::ManagedClient;
+#[cfg(test)]
+use crate::managed_client::{
+    MAX_RESTARTS, RESTART_WINDOW, clear_cloexec, respawn_delay, shell_quote,
+};
+use crate::state::State;
 
 /// How long a show waits for the superkey's first new frame before mapping
 /// whatever it last drew. Mapping on that commit is what keeps the previous
 /// showing's list from flashing up; the timeout is what keeps a superkey that
 /// never draws from never appearing.
 const SHOW_FALLBACK: Duration = Duration::from_millis(250);
-
-/// Restarts allowed within [`RESTART_WINDOW`] before the compositor stops
-/// trying. A superkey that crashes on start would otherwise be relaunched
-/// forever, each time taking a Vulkan device.
-const MAX_RESTARTS: usize = 5;
-const RESTART_WINDOW: Duration = Duration::from_secs(60);
 
 /// Where the superkey window is on screen, or on its way there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,42 +64,36 @@ pub enum Visibility {
     Visible,
 }
 
-/// Everything the compositor keeps about its superkey.
+/// Everything the compositor keeps about its superkey. The process, its
+/// client and its channel are the [`ManagedClient`] it derefs to.
 pub struct Superkey {
-    /// The shell command that starts it. `None`: there is no superkey, and
-    /// the bindings that would show it do nothing.
-    cmd: Option<String>,
-    child: Option<Child>,
-    client: Option<ClientId>,
+    process: ManagedClient,
     window: Option<Window>,
-    ipc: Option<UnixStream>,
-    ipc_source: Option<RegistrationToken>,
-    /// Bytes not yet written, because the socket was full.
-    out: Vec<u8>,
     visibility: Visibility,
     /// Which window had the keyboard when the superkey opened.
     return_focus: Option<WindowId>,
-    /// When it was (re)started, for the restart limit.
-    starts: Vec<Instant>,
-    /// When to start it next. `None` before the first start and after giving up.
-    next_start: Option<Instant>,
+}
+
+impl Deref for Superkey {
+    type Target = ManagedClient;
+    fn deref(&self) -> &ManagedClient {
+        &self.process
+    }
+}
+
+impl DerefMut for Superkey {
+    fn deref_mut(&mut self) -> &mut ManagedClient {
+        &mut self.process
+    }
 }
 
 impl Superkey {
     pub fn new(cmd: Option<String>) -> Self {
-        let cmd = cmd.filter(|c| !c.trim().is_empty());
         Self {
-            next_start: cmd.as_ref().map(|_| Instant::now()),
-            cmd,
-            child: None,
-            client: None,
+            process: ManagedClient::new("superkey", cmd),
             window: None,
-            ipc: None,
-            ipc_source: None,
-            out: Vec::new(),
             visibility: Visibility::Hidden,
             return_focus: None,
-            starts: Vec::new(),
         }
     }
 
@@ -113,7 +103,7 @@ impl Superkey {
     }
 
     pub fn is_superkey_client(&self, client: Option<ClientId>) -> bool {
-        client.is_some() && client == self.client
+        self.is_client(client)
     }
 
     pub fn window(&self) -> Option<&Window> {
@@ -126,38 +116,6 @@ impl Superkey {
             .as_ref()
             .and_then(|w| w.toplevel())
             .is_some_and(|t| t.wl_surface() == surface)
-    }
-
-    fn send(&mut self, msg: &ToSuperkey) {
-        if self.ipc.is_none() {
-            return;
-        }
-        self.out.extend(encode(msg));
-        self.flush();
-    }
-
-    /// Write what is queued, as far as the socket takes it. Never blocks: a
-    /// superkey that stops reading must not stop the compositor.
-    fn flush(&mut self) {
-        let Some(ipc) = self.ipc.as_mut() else {
-            self.out.clear();
-            return;
-        };
-        while !self.out.is_empty() {
-            match ipc.write(&self.out) {
-                Ok(0) => break,
-                Ok(n) => {
-                    self.out.drain(..n);
-                }
-                Err(e) if e.kind() == ErrorKind::WouldBlock => break,
-                Err(e) if e.kind() == ErrorKind::Interrupted => {}
-                Err(e) => {
-                    debug!("superkey ipc write failed: {e}");
-                    self.out.clear();
-                    break;
-                }
-            }
-        }
     }
 }
 
@@ -179,92 +137,30 @@ pub const ENV_COMMAND: &str = "DESICOMPASS_SUPERKEY";
 /// `desicompass-superkey` next to this binary (what `cargo build --workspace`
 /// produces), else on `PATH`.
 pub fn resolve_command() -> Option<String> {
-    let explicit = std::env::var_os(ENV_COMMAND).map(|v| v.to_string_lossy().into_owned());
-    let own_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(Path::to_path_buf));
-    let path = std::env::var_os("PATH");
-    let found = resolve_with(explicit, own_dir.as_deref(), path.as_deref(), is_executable);
-    match &found {
-        Some(cmd) => info!("superkey: {cmd}"),
-        None => info!("no {BINARY} found, running without the superkey"),
-    }
-    found
+    crate::managed_client::resolve(ENV_COMMAND, BINARY, "superkey")
 }
 
 /// [`resolve_command`], with the filesystem passed in.
+#[cfg(test)]
 fn resolve_with(
     explicit: Option<String>,
     own_dir: Option<&Path>,
     path: Option<&std::ffi::OsStr>,
     executable: impl Fn(&Path) -> bool,
 ) -> Option<String> {
-    if let Some(cmd) = explicit {
-        return (!cmd.trim().is_empty()).then_some(cmd);
-    }
-    if let Some(p) = own_dir.map(|d| d.join(BINARY)).filter(|p| executable(p)) {
-        return Some(shell_quote(&p.to_string_lossy()));
-    }
-    let on_path = path
-        .map(|p| std::env::split_paths(p).any(|d| executable(&d.join(BINARY))))
-        .unwrap_or(false);
-    on_path.then(|| BINARY.to_owned())
-}
-
-fn is_executable(p: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-}
-
-/// A path as one `sh -c` word.
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
+    crate::managed_client::resolve_with(BINARY, explicit, own_dir, path, executable)
 }
 
 /// The superkey's place on an output of `output` size: all of it. It is a
-/// screen of its own, over the windows, not a box among them.
+/// screen of its own, over the windows and the bar, not a box among them.
 pub fn superkey_rect(output: Size<i32, Logical>) -> Rectangle<i32, Logical> {
     Rectangle::new(Point::from((0, 0)), output)
 }
 
-/// How long to wait before starting the superkey again, given when it was
-/// started before. `None`: it keeps dying, stop trying.
-///
-/// The wait doubles with every recent start (250 ms, 500 ms, 1 s...), so a
-/// superkey that dies once is back at once and one that dies on start does
-/// not spin.
-pub fn respawn_delay(starts: &[Instant], now: Instant) -> Option<Duration> {
-    let recent = starts
-        .iter()
-        .filter(|&&t| now.duration_since(t) < RESTART_WINDOW)
-        .count();
-    if recent >= MAX_RESTARTS {
-        return None;
-    }
-    Some(Duration::from_millis(250) * 2u32.pow(recent.saturating_sub(1) as u32))
-}
-
 /// The environment the superkey is started with, besides the inherited one.
-pub fn child_env(
-    socket_name: &str,
-    wayland_fd: RawFd,
-    ipc_fd: RawFd,
-) -> Vec<(&'static str, String)> {
-    vec![
-        // libwayland connects to this fd rather than to WAYLAND_DISPLAY.
-        ("WAYLAND_SOCKET", wayland_fd.to_string()),
-        // Still set, because SDL checks it before it tries Wayland at all.
-        ("WAYLAND_DISPLAY", socket_name.to_owned()),
-        // Load-bearing. SDL 3.4 first tries a "preferred" Wayland start that
-        // wants wp_fifo_v1, and when this compositor lacks it SDL disconnects
-        // and connects again. libwayland unsets WAYLAND_SOCKET on the first
-        // connect, so the second one would reach the public socket as an
-        // ordinary client, and the superkey would be tiled like any window.
-        // Naming the driver skips the preferred attempt.
-        ("SDL_VIDEO_DRIVER", "wayland".to_owned()),
-        (ENV_IPC_FD, ipc_fd.to_string()),
-        ("SICOMPASS_SESSION", "1".to_owned()),
-    ]
+#[cfg(test)]
+fn child_env(socket_name: &str, wayland_fd: RawFd, ipc_fd: RawFd) -> Vec<(&'static str, String)> {
+    crate::managed_client::child_env(socket_name, wayland_fd, ENV_IPC_FD, ipc_fd)
 }
 
 /// The window list the superkey is sent: most recently used first, the
@@ -287,17 +183,6 @@ pub fn window_infos(
         .collect()
 }
 
-/// Let a child inherit `fd`: `UnixStream` sets close-on-exec.
-fn clear_cloexec(fd: RawFd) -> std::io::Result<()> {
-    // SAFETY: fcntl on an fd this process owns; async-signal-safe, so fine
-    // between fork and exec.
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
-    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(())
-}
-
 impl State {
     // -----------------------------------------------------------------------
     // Lifecycle
@@ -309,20 +194,17 @@ impl State {
     pub fn maintain_superkey(&mut self) {
         let now = Instant::now();
 
-        if let Some(child) = self.superkey.child.as_mut() {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    warn!("the superkey exited ({status})");
-                    self.superkey_gone(now);
-                }
-                Ok(None) => {}
-                Err(e) => debug!("superkey wait failed: {e}"),
-            }
+        if self.superkey.exited() {
+            self.superkey_gone(now);
         }
 
-        if self.superkey.child.is_none() && self.superkey.next_start.is_some_and(|t| now >= t) {
+        if self.superkey.due(now) {
             self.superkey.next_start = None;
-            if let Err(e) = self.start_superkey() {
+            if let Err(e) = self.start_managed(
+                |s| &mut s.superkey,
+                ENV_IPC_FD,
+                State::handle_superkey_message,
+            ) {
                 error!("could not start the superkey: {e}");
                 self.superkey_gone(now);
             }
@@ -338,108 +220,15 @@ impl State {
         self.superkey.flush();
     }
 
-    fn start_superkey(&mut self) -> std::io::Result<()> {
-        let Some(cmd) = self.superkey.cmd.clone() else {
-            return Ok(());
-        };
-        let (wayland_ours, wayland_theirs) = UnixStream::pair()?;
-        let (ipc_ours, ipc_theirs) = UnixStream::pair()?;
-
-        let client = self
-            .display_handle
-            .insert_client(wayland_ours, Arc::new(ClientState::default()))?;
-
-        let wayland_fd = wayland_theirs.as_raw_fd();
-        let ipc_fd = ipc_theirs.as_raw_fd();
-        let mut command = Command::new("/bin/sh");
-        command
-            .args(["-c", &cmd])
-            .envs(child_env(&self.socket_name, wayland_fd, ipc_fd))
-            .env_remove("DISPLAY");
-        // SAFETY: only async-signal-safe calls (fcntl) run in the child.
-        unsafe {
-            command.pre_exec(move || {
-                clear_cloexec(wayland_fd)?;
-                clear_cloexec(ipc_fd)
-            });
-        }
-        // On failure the child's ends are dropped on return, so the client
-        // just inserted sees its socket close and goes away by itself.
-        let child = command.spawn()?;
-        // The child has its copies now.
-        drop(wayland_theirs);
-        drop(ipc_theirs);
-
-        ipc_ours.set_nonblocking(true)?;
-        let reader = ipc_ours.try_clone()?;
-        let mut decoder = LineDecoder::new();
-        let token = self
-            .loop_handle
-            .insert_source(
-                Generic::new(reader, Interest::READ, Mode::Level),
-                move |_, stream, state: &mut State| {
-                    let mut buf = [0u8; 4096];
-                    loop {
-                        match stream.as_ref().read(&mut buf) {
-                            Ok(0) => {
-                                debug!("the superkey closed its channel");
-                                state.superkey.ipc = None;
-                                state.superkey.ipc_source = None;
-                                return Ok(PostAction::Remove);
-                            }
-                            Ok(n) => {
-                                for msg in decoder.feed::<FromSuperkey>(&buf[..n]) {
-                                    state.handle_superkey_message(msg);
-                                }
-                            }
-                            Err(e) if e.kind() == ErrorKind::WouldBlock => break,
-                            Err(e) if e.kind() == ErrorKind::Interrupted => {}
-                            Err(e) => {
-                                debug!("superkey ipc read failed: {e}");
-                                state.superkey.ipc = None;
-                                state.superkey.ipc_source = None;
-                                return Ok(PostAction::Remove);
-                            }
-                        }
-                    }
-                    Ok(PostAction::Continue)
-                },
-            )
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
-
-        info!("started the superkey (pid {})", child.id());
-        self.superkey.starts.push(Instant::now());
-        self.superkey.child = Some(child);
-        self.superkey.client = Some(client.id());
-        self.superkey.ipc = Some(ipc_ours);
-        self.superkey.ipc_source = Some(token);
-        self.superkey.out.clear();
-        Ok(())
-    }
-
-    /// The superkey process is gone: forget it, and schedule the next start.
+    /// The superkey process is gone: forget it and its window, and schedule
+    /// the next start.
     fn superkey_gone(&mut self, now: Instant) {
-        if let Some(mut child) = self.superkey.child.take() {
-            let _ = child.try_wait();
-        }
-        if let Some(token) = self.superkey.ipc_source.take() {
-            self.loop_handle.remove(token);
-        }
-        self.superkey.ipc = None;
-        self.superkey.client = None;
+        self.managed_gone(|s| &mut s.superkey, now);
         if self.superkey.is_shown() {
             self.hide_superkey(true);
         }
         if let Some(w) = self.superkey.window.take() {
             self.space.unmap_elem(&w);
-        }
-        match respawn_delay(&self.superkey.starts, now) {
-            Some(d) if self.running => self.superkey.next_start = Some(now + d),
-            Some(_) => {}
-            None => error!(
-                "the superkey keeps exiting ({MAX_RESTARTS} starts in {}s); not starting it again",
-                RESTART_WINDOW.as_secs()
-            ),
         }
     }
 
@@ -686,7 +475,6 @@ impl State {
     // -----------------------------------------------------------------------
 
     fn handle_superkey_message(&mut self, msg: FromSuperkey) {
-        debug!("superkey: {msg:?}");
         match msg {
             FromSuperkey::Hello { version } => {
                 if version != VERSION {
@@ -720,6 +508,11 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net::UnixStream;
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
 
     fn exists(set: &'static [&'static str]) -> impl Fn(&Path) -> bool {
         move |p| set.iter().any(|s| Path::new(s) == p)

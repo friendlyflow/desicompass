@@ -50,8 +50,12 @@ pub enum Section {
     Windows,
     /// Suspend, reboot, power off, log out. Super+C.
     Controls,
-    /// The accessibility settings. Super+S.
+    /// The settings: accessibility, then the bar. Super+S.
     Settings,
+    /// What the bar shows, in words. Super+B.
+    Status,
+    /// The notifications. Super+N.
+    Notifications,
 }
 
 /// One toplevel, as the superkey lists it.
@@ -251,6 +255,8 @@ mod tests {
             Section::Windows,
             Section::Controls,
             Section::Settings,
+            Section::Status,
+            Section::Notifications,
         ] {
             let m = ToSuperkey::Show {
                 section,

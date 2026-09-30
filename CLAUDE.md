@@ -25,10 +25,11 @@ is installed system-wide.
 - The version lives in `[workspace.package] version` in the root `Cargo.toml`.
   `flake.nix` reads it from there, so there is only one version to bump.
 - The repo is a Cargo workspace. `cargo test -p` takes the package name, which
-  differs from the directory: `lib/lib_superkey` is `desicompass-superkey` and
-  `lib/lib_superkey_protocol` is `desicompass-superkey-protocol`. The root
-  package is `desicompass`. `cargo test` and `cargo clippy` with no `-p` cover
-  all three (`default-members`).
+  differs from the directory: `lib/lib_<x>` is `desicompass-<x>` (with dashes:
+  `lib/lib_superkey_protocol` is `desicompass-superkey-protocol`,
+  `lib/lib_bar` is `desicompass-bar`). The root package is `desicompass`.
+  `cargo test` and `cargo clippy` with no `-p` cover all five
+  (`default-members`).
 - Linux only. The dev shell and every package are `x86_64-linux` and
   `aarch64-linux`.
 
@@ -99,6 +100,28 @@ and shown and hidden by it. See
 The `[patch]` sections for working on sicompass-ui and the SDK together sit at
 the bottom of the root `Cargo.toml`, the workspace root being the only place
 cargo honours them. Comment them out again before committing.
+
+## Architecture: the bar
+
+`desicompass-bar` (`lib/lib_bar`) is the strip with the clock and the status
+icons, started, placed and restarted by the compositor like the superkey
+(`src/bar.rs`, sharing `src/managed_client.rs`). It is also the session's
+notification server, its tray, and the source of the status the superkey's
+Status section lists. See [docs/bar.md](docs/bar.md). The superkey's rules hold
+for it too, and:
+
+- **Nothing depends on the bar crate.** The compositor and the superkey share
+  only `lib/lib_bar_protocol` with it (serde and libc): the channel, the
+  settings file (`bar.json`) and the status file.
+- **The bar never has the keyboard**, so it has no AccessKit tree. Everything
+  it shows must also be in the superkey's Status section, which is how a
+  screen reader reaches it.
+- **It never starts or stops Orca.** Super+T speaks through `spd-say`, which
+  shares speech-dispatcher with Orca.
+- **The tiles get `State::usable_area()`, never `output_size()`**, so nothing
+  but the superkey covers the bar.
+- **Tests that touch D-Bus run on a private `dbus-daemon`** (`tests/dbus.rs`),
+  never on the session bus the tests run in.
 
 ## Architecture: the NixOS module
 
