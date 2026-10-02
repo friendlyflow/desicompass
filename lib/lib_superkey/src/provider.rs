@@ -176,7 +176,13 @@ impl SuperkeyProvider {
     }
 
     /// The rows of the tutorial level the path names, as the user has them.
+    ///
+    /// Except the programs section, which is always the tutorial's own answer:
+    /// it lists the plugins installed now, and the user edits nothing in it.
     fn tutorial_level(&mut self) -> Vec<FfonElement> {
+        if self.tutorial.in_programs_section() {
+            return self.tutorial.fetch();
+        }
         let mut rows = self.tutorial_rows();
         for segment in &self.tutorial_path {
             let found = rows.into_iter().find_map(|e| match e {
@@ -773,9 +779,10 @@ impl Provider for SuperkeyProvider {
     fn tick(&mut self) -> bool {
         // Nothing the host changes is shown inside the tutorial, and a rebuild
         // there would land in the middle of an edit. The change waits for the
-        // first tick outside it.
+        // first tick outside it. Only the tutorial itself may ask, and it asks
+        // only in its programs section, after a plugin is installed or removed.
         if self.in_tutorial() {
-            return false;
+            return self.tutorial.tick();
         }
         std::mem::take(&mut self.shared().dirty)
     }
@@ -898,6 +905,43 @@ mod tests {
         p.set_current_path("/");
         p.push_path("Tutorial");
         assert_eq!(texts(&p.fetch()), tutorial_at(&[]));
+    }
+
+    /// The programs section lists the plugins installed now, not the ones the
+    /// remembered tutorial was built with, and asks to be read again after an
+    /// install.
+    #[test]
+    fn the_tutorials_programs_follow_the_plugins_folder() {
+        let (mut p, shared) = provider();
+        let plugins = tempfile::tempdir().unwrap();
+        p.tutorial = TutorialProvider::with_plugins_dir(Some(plugins.path().to_owned()));
+        shared.lock().unwrap().tutorial = Some(TutorialState {
+            locale: sicompass_sdk::localize::current_locale(),
+            rows: TutorialProvider::with_plugins_dir(Some(plugins.path().to_owned())).fetch(),
+        });
+        p.push_path("Tutorial");
+        p.push_path(&tutorial_section("The programs"));
+        assert!(!texts(&p.fetch()).iter().any(|s| s.contains("during the session")));
+
+        let plugin = plugins.path().join("skfake");
+        std::fs::create_dir_all(plugin.join("locales")).unwrap();
+        std::fs::write(
+            plugin.join("plugin.json"),
+            r#"{"name":"skfake","displayName":"fake","entry":"plugin.wasm"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            plugin.join("locales").join("en-US.ftl"),
+            "skfake-tutorial = Installed during the session\n",
+        )
+        .unwrap();
+
+        assert!(p.tick(), "an install must have the section read again");
+        assert!(
+            texts(&p.fetch()).contains(&"Installed during the session".to_owned()),
+            "{:?}",
+            texts(&p.fetch())
+        );
     }
 
     #[test]

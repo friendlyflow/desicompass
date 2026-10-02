@@ -3250,7 +3250,7 @@ dependencies = [
 [[package]]
 name = "sicompass-tutorial"
 version = "0.2.0"
-source = "git+https://github.com/friendlyflow/sicompass?rev=6fcdbe6e88b8a248ab970f3afb6608d0f801f956#6fcdbe6e88b8a248ab970f3afb6608d0f801f956"
+source = "git+https://github.com/friendlyflow/sicompass?rev=dc8a27e632dc8ff32f01957c4700abbee63f2f54#dc8a27e632dc8ff32f01957c4700abbee63f2f54"
 dependencies = [
  "serde_json",
  "sicompass-sdk",
