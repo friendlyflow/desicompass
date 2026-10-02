@@ -39,7 +39,7 @@ sicompass-ui = { git = "https://github.com/friendlyflow/sicompass-ui", rev = "45
 # The Tutorial section: sicompass's own tutorial provider, which the app
 # leaves out in a session. Light (the SDK and serde_json), never published, so
 # pinned by git like sicompass-ui.
-sicompass-tutorial = { git = "https://github.com/friendlyflow/sicompass", rev = "5853e193446a065739e124d9ddf20298d1e0d32c" }
+sicompass-tutorial = { git = "https://github.com/friendlyflow/sicompass", rev = "6fcdbe6e88b8a248ab970f3afb6608d0f801f956" }
 
 serde = "1"
 serde_json = "1"
