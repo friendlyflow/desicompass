@@ -8,7 +8,8 @@
 //! ([`usable_area`]).
 //!
 //! It tells the compositor where it wants to be and how tall it is
-//! (`place`), and the compositor tells it to say the time (Super+T). See
+//! (`place`), and the compositor tells it to say the time and the date
+//! (Super+D). See
 //! `docs/bar.md`.
 
 use std::ops::{Deref, DerefMut};
@@ -227,7 +228,7 @@ impl State {
         bar_rect(self.output_size(), self.bar.edge, self.bar.height).size
     }
 
-    /// Super+T.
+    /// Super+D.
     pub fn say_time(&mut self) {
         if self.bar.ipc.is_none() {
             warn!("no bar is running to say the time");

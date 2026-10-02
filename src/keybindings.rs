@@ -67,10 +67,10 @@ pub enum BindingAction {
     /// `State::request_quit`.
     Quit,
     /// Open the superkey on one of its sections (Super+W, Super+C, Super+S,
-    /// Super+B, Super+N). `Section::Root` is never bound to a chord: it is the bare
-    /// Super tap, which [`SuperTap`] detects.
+    /// Super+B, Super+N, Super+T). `Section::Root` is never bound to a chord: it
+    /// is the bare Super tap, which [`SuperTap`] detects.
     Superkey(Section),
-    /// Have the bar say the time out loud (Super+T).
+    /// Have the bar say the time and the date out loud (Super+D).
     SayTime,
     /// No binding matched; the key belongs to the focused client.
     PassThrough,
@@ -110,9 +110,10 @@ pub fn evaluate(mods: Mods, keysym: u32) -> BindingAction {
         (keysyms::KEY_s, false) => BindingAction::Superkey(Section::Settings),
         (keysyms::KEY_b, false) => BindingAction::Superkey(Section::Status),
         (keysyms::KEY_n, false) => BindingAction::Superkey(Section::Notifications),
+        (keysyms::KEY_t, false) => BindingAction::Superkey(Section::Tutorial),
 
-        // The time, spoken. Harmless too: it changes nothing.
-        (keysyms::KEY_t, false) => BindingAction::SayTime,
+        // The time and the date, spoken. Harmless too: it changes nothing.
+        (keysyms::KEY_d, false) => BindingAction::SayTime,
 
         // Both destructive actions need Shift. Closing a window or ending the
         // session on a single unshifted chord is too easy to hit by accident
@@ -408,8 +409,24 @@ mod tests {
         );
     }
     #[test]
-    fn super_t_says_the_time_and_only_unshifted() {
-        assert_eq!(evaluate(sup(), keysyms::KEY_t), BindingAction::SayTime);
+    fn super_d_says_the_time_and_only_unshifted() {
+        assert_eq!(evaluate(sup(), keysyms::KEY_d), BindingAction::SayTime);
+        assert_eq!(
+            evaluate(sup_shift(), keysyms::KEY_d),
+            BindingAction::PassThrough
+        );
+        assert_eq!(
+            evaluate(Mods::default(), keysyms::KEY_d),
+            BindingAction::PassThrough
+        );
+    }
+
+    #[test]
+    fn super_t_opens_the_tutorial() {
+        assert_eq!(
+            evaluate(sup(), keysyms::KEY_t),
+            BindingAction::Superkey(Section::Tutorial)
+        );
         assert_eq!(
             evaluate(sup_shift(), keysyms::KEY_t),
             BindingAction::PassThrough

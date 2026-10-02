@@ -68,7 +68,7 @@ impl Edge {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ToBar {
-    /// Super+T: say the time out loud.
+    /// Super+D: say the time and the date out loud.
     SayTime,
 }
 

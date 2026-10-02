@@ -27,13 +27,14 @@ non-US layouts the right Alt is AltGr, which you need to type characters like
 | `Super+Return` | Open a terminal (`--terminal`, `foot` by default) |
 | `Super+Shift+Q` | Close the focused window |
 | `Super+Shift+E` | End the session (press it twice) |
-| `Super`, tapped on its own | Open or close the superkey |
+| `Super`, tapped on its own | Open the superkey (Escape closes it) |
 | `Super+W` | Open the superkey on the open windows |
 | `Super+C` | Open the superkey on the controls (suspend, restart, shut down, log out) |
 | `Super+S` | Open the superkey on the settings (accessibility, then the bar) |
 | `Super+B` | Open the superkey on the status the bar shows |
 | `Super+N` | Open the superkey on the notifications |
-| `Super+T` | Say the time out loud |
+| `Super+T` | Open the superkey on the tutorial |
+| `Super+D` | Say the time and the date out loud |
 
 The keyboard layout comes from systemd-localed, which is where your OS installer
 put it. `--xkb-layout`, `--xkb-variant`, `--xkb-model` and `--xkb-options`
@@ -49,14 +50,19 @@ Super held after its name (`Status [b]`):
 - **Notifications**, with how many there are. Enter dismisses one.
 - **Windows**, most recently used first. `Super+W` then Enter goes back to the
   window you used before this one.
-- **Controls**: suspend, restart, shut down and log out.
 - **Status**: what the bar's icons show, in words. The date and time, the
   network, the volume, the battery and Bluetooth, then **Tray**, where Enter
   activates an item.
+- **Tutorial**: the Sicompass tutorial. In a desicompass session it is here
+  rather than in Sicompass. Inside it the superkey works like Sicompass, in
+  General mode, because those are the keys it teaches. Tabs, undo and the
+  timeline are the exceptions, since the superkey keeps nothing. Left at its
+  top goes back to the list and to searching, and Escape closes the superkey.
 - **Settings**: the colour scheme and the language, then two groups.
   **Accessibility** holds the screen reader, the font scale and
   shoulder-surfing protection. **Bar** holds where the bar sits and whether its
   clock shows seconds.
+- **Controls**: suspend, restart, shut down and log out.
 - every installed program, by name.
 
 Enter does what the row is for: it focuses a window, starts a program, runs a
@@ -88,7 +94,7 @@ muted, an exclamation mark on a network that does not reach the internet. A
 battery, Bluetooth adapter or network service that the machine does not have
 shows no icon at all.
 
-`Super+T` says the time out loud through speech-dispatcher, whether or not a
+`Super+D` says the time and the date out loud through speech-dispatcher, whether or not a
 screen reader is running. What the icons show is also in the superkey's Status
 section (`Super+B`) and its notifications (`Super+N`), which is how you reach it by keyboard and with a screen reader.
 

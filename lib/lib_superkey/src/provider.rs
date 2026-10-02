@@ -3,19 +3,20 @@
 //! ```text
 //! + Notifications (2) [n] one button per notification: Enter dismisses it
 //! + Windows [w]           one button per open window, most recent first
-//! + Controls [c]          suspend, restart, shut down, log out
 //! + Status [b]            what the bar's icons show, in words
 //!   + Tray                one button per tray item: Enter activates it
+//! + Tutorial [t]          the sicompass tutorial, which the app leaves out in
+//!                         a session
 //! + Settings [s]
 //!   +R color scheme       dark, light
 //!   +R language           the four languages, each named in itself
 //!   + Accessibility       screen reader, font scale, shoulder-surfing protection
 //!   + Bar                 where the bar sits, seconds on its clock
+//! + Controls [c]          suspend, restart, shut down, log out
 //! -b Firefox              then every installed program, by name
+//! ```
 //!
 //! A section's label ends in the key that opens it with Super held.
-//! -b Files
-//! ```
 //!
 //! Every leaf is a `<button>` whose function name is an [`Action`], and pressing
 //! one only queues the action: the host (`gui.rs`) owns the compositor channel
@@ -25,7 +26,8 @@
 //!
 //! `fetch` is path-scoped: the whole tree at the root, and one level inside a
 //! section. The path is kept as [`Node`]s, not labels, so it survives a
-//! language change.
+//! language change. Below Tutorial, the levels are the embedded
+//! [`TutorialProvider`]'s, which keeps its own path.
 
 use std::sync::{Arc, Mutex};
 
@@ -37,6 +39,7 @@ use desicompass_superkey_protocol::WindowInfo;
 use sicompass_sdk::ffon::FfonElement;
 use sicompass_sdk::provider::Provider;
 use sicompass_sdk::tags;
+use sicompass_tutorial::TutorialProvider;
 use sicompass_ui::accessibility::{
     AccessibilitySettings, COLOR_SCHEMES, FONT_SCALES, KEY_COLOR_SCHEME, KEY_FONT_SCALE,
     KEY_LANGUAGE, KEY_SCREEN_READER, KEY_SHOULDER_SURFING, LANGUAGES,
@@ -67,6 +70,20 @@ pub struct Shared {
     pub error: Option<String>,
     /// Something shown changed: the next tick rebuilds the list.
     pub dirty: bool,
+    /// The tutorial as the user has it: the boxes ticked, the radios chosen and
+    /// the inputs edited. The host copies it from the renderer
+    /// (`gui::remember_tutorial`), and the list is rebuilt from it, so an edit
+    /// survives leaving the section and hiding the superkey, the way it lasts
+    /// in the app. `None` until the tutorial is first entered.
+    pub tutorial: Option<TutorialState>,
+}
+
+/// The tutorial's rows in one language. Another language starts it afresh:
+/// its labels, and the path through them, are that language's.
+#[derive(Debug, Clone)]
+pub struct TutorialState {
+    pub locale: String,
+    pub rows: Vec<FfonElement>,
 }
 
 pub type SharedState = Arc<Mutex<Shared>>;
@@ -88,16 +105,21 @@ pub enum Node {
     Tray,
     /// The options of one setting with a list of values.
     Choice(&'static str),
+    /// The sicompass tutorial, which the app leaves out in a session.
+    Tutorial,
+    /// A level inside the tutorial. Which one is the embedded provider's path.
+    TutorialPage,
 }
 
 /// The sections, in the order the root lists them. The index is what the host
 /// lands the cursor on.
-pub const SECTIONS: [Node; 5] = [
+pub const SECTIONS: [Node; 6] = [
     Node::Notifications,
     Node::Windows,
-    Node::Controls,
     Node::Status,
+    Node::Tutorial,
     Node::Settings,
+    Node::Controls,
 ];
 
 /// The groups inside Settings, in order, after [`SETTINGS_CHOICES`].
@@ -122,15 +144,62 @@ pub struct SuperkeyProvider {
     /// did not recognise, which then has nothing in it.
     path: Vec<Option<Node>>,
     path_str: String,
+    /// Below Tutorial, every level is this provider's: its rows, its button.
+    tutorial: TutorialProvider,
+    /// The labels pushed below Tutorial, to walk [`Shared::tutorial`] by. Kept
+    /// whole rather than read back from a path string, because a label may
+    /// hold a `/` ("Insert/edit").
+    tutorial_path: Vec<String>,
 }
 
 impl SuperkeyProvider {
     pub fn new(shared: SharedState) -> Self {
+        // Its strings, and the two files it shows (`asset:tutorial/…`).
+        sicompass_tutorial::register_translations();
+        sicompass_tutorial::register();
         Self {
             shared,
             path: Vec::new(),
             path_str: "/".to_owned(),
+            tutorial: TutorialProvider::new(),
+            tutorial_path: Vec::new(),
         }
+    }
+
+    /// The tutorial's rows at its root, as the user has them.
+    fn tutorial_rows(&self) -> Vec<FfonElement> {
+        let locale = sicompass_sdk::localize::current_locale();
+        match &self.shared().tutorial {
+            Some(t) if t.locale == locale => t.rows.clone(),
+            _ => TutorialProvider::new().fetch(),
+        }
+    }
+
+    /// The rows of the tutorial level the path names, as the user has them.
+    fn tutorial_level(&mut self) -> Vec<FfonElement> {
+        let mut rows = self.tutorial_rows();
+        for segment in &self.tutorial_path {
+            let found = rows.into_iter().find_map(|e| match e {
+                FfonElement::Obj(o) if tags::strip_display(&o.key) == *segment => {
+                    Some(o.children)
+                }
+                _ => None,
+            });
+            match found {
+                Some(children) => rows = children,
+                // Not in the remembered tree: the tutorial's own answer.
+                None => return self.tutorial.fetch(),
+            }
+        }
+        rows
+    }
+
+    /// Whether the level shown is the Tutorial section or one inside it.
+    fn in_tutorial(&self) -> bool {
+        matches!(
+            self.path.last(),
+            Some(Some(Node::Tutorial | Node::TutorialPage))
+        )
     }
 
     fn shared(&self) -> std::sync::MutexGuard<'_, Shared> {
@@ -144,7 +213,10 @@ impl SuperkeyProvider {
             let segs: Vec<String> = self
                 .path
                 .iter()
+                .filter(|n| **n != Some(Node::TutorialPage))
                 .map(|n| match n {
+                    Some(Node::Tutorial) => "tutorial".to_owned(),
+                    Some(Node::TutorialPage) => unreachable!("filtered out"),
                     Some(Node::Windows) => "windows".to_owned(),
                     Some(Node::Controls) => "controls".to_owned(),
                     Some(Node::Settings) => "settings".to_owned(),
@@ -157,7 +229,12 @@ impl SuperkeyProvider {
                     None => "?".to_owned(),
                 })
                 .collect();
-            format!("/{}", segs.join("/"))
+            let below = self.tutorial.current_path().trim_start_matches('/');
+            if below.is_empty() {
+                format!("/{}", segs.join("/"))
+            } else {
+                format!("/{}/{below}", segs.join("/"))
+            }
         };
     }
 
@@ -196,6 +273,11 @@ impl SuperkeyProvider {
             Node::Notifications => self.notification_rows(),
             Node::Tray => self.tray_rows(),
             Node::Choice(key) => self.choice_rows(key),
+            // At its root: `rows` is the nested tree the root fetch hands
+            // out, whatever level the live provider is at.
+            Node::Tutorial => self.tutorial_rows(),
+            // Only reached through `fetch`, which asks the live one.
+            Node::TutorialPage => Vec::new(),
         }
     }
 
@@ -480,6 +562,7 @@ pub fn shortcut(node: Node) -> Option<char> {
         Node::Settings => Some('s'),
         Node::Status => Some('b'),
         Node::Notifications => Some('n'),
+        Node::Tutorial => Some('t'),
         _ => None,
     }
 }
@@ -522,6 +605,7 @@ pub fn section_label(node: Node) -> String {
             Node::Accessibility => "superkey-group-accessibility",
             Node::Bar => "superkey-group-bar",
             Node::Tray => "superkey-status-tray",
+            Node::Tutorial => "superkey-section-tutorial",
             _ => "superkey-section-settings",
         }),
     }
@@ -588,19 +672,36 @@ impl Provider for SuperkeyProvider {
     fn fetch(&mut self) -> Vec<FfonElement> {
         match self.path.last() {
             None => self.root(),
+            Some(Some(Node::TutorialPage)) => self.tutorial_level(),
             Some(Some(node)) => self.rows(*node),
             Some(None) => Vec::new(),
         }
     }
 
     fn push_path(&mut self, segment: &str) {
-        let node = self.node_for(segment);
-        self.path.push(node);
+        if self.in_tutorial() {
+            self.tutorial.push_path(segment);
+            self.tutorial_path.push(segment.to_owned());
+            self.path.push(Some(Node::TutorialPage));
+        } else {
+            let node = self.node_for(segment);
+            self.path.push(node);
+        }
         self.update_path_str();
     }
 
     fn pop_path(&mut self) {
-        self.path.pop();
+        match self.path.pop() {
+            Some(Some(Node::TutorialPage)) => {
+                self.tutorial.pop_path();
+                self.tutorial_path.pop();
+            }
+            Some(Some(Node::Tutorial)) => {
+                self.tutorial.set_current_path("/");
+                self.tutorial_path.clear();
+            }
+            _ => {}
+        }
         self.update_path_str();
     }
 
@@ -609,6 +710,8 @@ impl Provider for SuperkeyProvider {
         // show, and a deeper path is always reached by pushing.
         if path == "/" {
             self.path.clear();
+            self.tutorial.set_current_path("/");
+            self.tutorial_path.clear();
             self.update_path_str();
         }
     }
@@ -620,6 +723,10 @@ impl Provider for SuperkeyProvider {
     /// A settings checkbox, toggled by the renderer: `checked` is the new
     /// state.
     fn on_checkbox_change(&mut self, label: &str, checked: bool) {
+        // The tutorial's practice boxes are not settings.
+        if self.in_tutorial() {
+            return;
+        }
         let label = tags::strip_display(label);
         let key = SWITCHES.into_iter().find(|k| setting_label(k) == label);
         if let Some(key) = key {
@@ -632,6 +739,9 @@ impl Provider for SuperkeyProvider {
     /// A settings radio option, chosen by the renderer: `group` is the
     /// group's label and `value` the option's, as shown.
     fn on_radio_change(&mut self, group: &str, value: &str) {
+        if self.in_tutorial() {
+            return;
+        }
         let group = tags::strip_display(group);
         let Some(key) = SETTINGS_CHOICES
             .into_iter()
@@ -649,6 +759,11 @@ impl Provider for SuperkeyProvider {
     }
 
     fn on_button_press(&mut self, function_name: &str) {
+        // The tutorial's playground button, which only says it was pressed.
+        if self.in_tutorial() {
+            self.tutorial.on_button_press(function_name);
+            return;
+        }
         match parse(function_name) {
             Some(action) => self.shared().actions.push(action),
             None => tracing::debug!("not a superkey action: {function_name}"),
@@ -656,6 +771,12 @@ impl Provider for SuperkeyProvider {
     }
 
     fn tick(&mut self) -> bool {
+        // Nothing the host changes is shown inside the tutorial, and a rebuild
+        // there would land in the middle of an edit. The change waits for the
+        // first tick outside it.
+        if self.in_tutorial() {
+            return false;
+        }
         std::mem::take(&mut self.shared().dirty)
     }
 
@@ -664,7 +785,8 @@ impl Provider for SuperkeyProvider {
     }
 
     fn take_error(&mut self) -> Option<String> {
-        self.shared().error.take()
+        let error = self.shared().error.take();
+        error.or_else(|| self.tutorial.take_error())
     }
 }
 
@@ -709,12 +831,85 @@ mod tests {
             [
                 "+Notifications (0) [n]",
                 "+Windows [w]",
-                "+Controls [c]",
                 "+Status [b]",
+                "+Tutorial [t]",
                 "+Settings [s]",
+                "+Controls [c]",
                 "<button>app:foot</button>Foot"
             ]
         );
+    }
+
+    /// The tutorial's own levels, at its root and one level down.
+    fn tutorial_at(path: &[&str]) -> Vec<String> {
+        let mut t = TutorialProvider::new();
+        for seg in path {
+            t.push_path(seg);
+        }
+        texts(&t.fetch())
+    }
+
+    #[test]
+    fn the_tutorial_section_is_the_tutorials_root() {
+        let (mut p, _) = provider();
+        let root = p.fetch();
+        let nested = root[3].as_obj().unwrap();
+        assert_eq!(nested.key, "Tutorial [t]");
+        let sections = texts(&nested.children);
+        assert_eq!(sections, tutorial_at(&[]));
+        assert_eq!(sections.len(), 7, "{sections:?}");
+        assert!(sections[0].starts_with("+Getting Started"), "{sections:?}");
+    }
+
+    /// A tutorial section's label, as the renderer pushes it.
+    fn tutorial_section(starts: &str) -> String {
+        tutorial_at(&[])
+            .into_iter()
+            .find_map(|s| s.strip_prefix('+').filter(|l| l.starts_with(starts)).map(str::to_owned))
+            .unwrap_or_else(|| panic!("no tutorial section {starts}"))
+    }
+
+    #[test]
+    fn inside_the_tutorial_the_levels_are_the_tutorials() {
+        let (mut p, _) = provider();
+        p.push_path("Tutorial [t]");
+        assert_eq!(p.current_path(), "/tutorial");
+        assert_eq!(texts(&p.fetch()), tutorial_at(&[]));
+
+        let getting_started = tutorial_section("Getting Started");
+        p.push_path(&getting_started);
+        assert_eq!(p.current_path(), format!("/tutorial/{getting_started}"));
+        assert_eq!(texts(&p.fetch()), tutorial_at(&[&getting_started]));
+        assert!(!p.fetch().is_empty());
+
+        p.pop_path();
+        assert_eq!(p.current_path(), "/tutorial");
+        assert_eq!(texts(&p.fetch()), tutorial_at(&[]));
+        p.pop_path();
+        assert_eq!(p.current_path(), "/");
+        assert_eq!(p.fetch().len(), 7);
+    }
+
+    #[test]
+    fn leaving_the_tutorial_from_deep_inside_starts_it_over() {
+        let (mut p, _) = provider();
+        p.push_path("Tutorial");
+        p.push_path(&tutorial_section("Getting Started"));
+        p.set_current_path("/");
+        p.push_path("Tutorial");
+        assert_eq!(texts(&p.fetch()), tutorial_at(&[]));
+    }
+
+    #[test]
+    fn the_tutorials_button_speaks_and_queues_nothing() {
+        let (mut p, shared) = provider();
+        p.push_path("Tutorial");
+        p.push_path(&tutorial_section("Interactive playground"));
+        p.on_button_press("demo");
+        assert!(shared.lock().unwrap().actions.is_empty());
+        let said = p.take_error();
+        assert!(said.is_some_and(|s| !s.is_empty()));
+        assert_eq!(p.take_error(), None);
     }
 
     #[test]
@@ -842,9 +1037,16 @@ mod tests {
         // and fetch: both must show the same thing.
         let (mut p, _) = provider();
         let root = p.fetch();
-        for (i, label) in ["Notifications", "Windows", "Controls", "Status", "Settings"]
-            .iter()
-            .enumerate()
+        for (i, label) in [
+            "Notifications",
+            "Windows",
+            "Status",
+            "Tutorial",
+            "Settings",
+            "Controls",
+        ]
+        .iter()
+        .enumerate()
         {
             let nested = root[i].as_obj().unwrap().children.clone();
             p.push_path(label);
@@ -867,7 +1069,7 @@ mod tests {
         p.push_path("Elsewhere");
         assert!(p.fetch().is_empty());
         p.set_current_path("/");
-        assert_eq!(p.fetch().len(), 6);
+        assert_eq!(p.fetch().len(), 7);
     }
 
     #[test]
@@ -1048,7 +1250,7 @@ mod tests {
         let (mut p, shared) = provider();
         shared.lock().unwrap().status = status();
         let root = p.fetch();
-        let nested = root[3].as_obj().unwrap().children.clone();
+        let nested = root[2].as_obj().unwrap().children.clone();
         p.push_path("Status");
         assert_eq!(texts(&nested), texts(&p.fetch()));
     }

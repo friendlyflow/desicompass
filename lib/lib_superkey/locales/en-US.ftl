@@ -55,6 +55,7 @@ superkey-bar-top = top
 
 # The Status section: what the bar's icons show, in words.
 superkey-section-status = Status
+superkey-section-tutorial = Tutorial
 superkey-status-notifications = Notifications ({ $count })
 superkey-status-tray = Tray
 superkey-no-notifications = No notifications

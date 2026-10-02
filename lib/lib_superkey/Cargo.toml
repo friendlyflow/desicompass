@@ -35,7 +35,11 @@ zbus = { version = "5", default-features = false, features = ["blocking-api", "a
 # between releases and a `tag` at a release. For local work, uncomment the
 # `[patch]` sections at the bottom of the workspace's root Cargo.toml.
 sicompass-sdk = "0.9.0"
-sicompass-ui = { git = "https://github.com/friendlyflow/sicompass-ui", rev = "5729045cf6f5b48e7c1b5bbecdf71025e5075d32" }
+sicompass-ui = { git = "https://github.com/friendlyflow/sicompass-ui", rev = "45f6a676b208db6bf2f70520d64f21f815f0fabc" }
+# The Tutorial section: sicompass's own tutorial provider, which the app
+# leaves out in a session. Light (the SDK and serde_json), never published, so
+# pinned by git like sicompass-ui.
+sicompass-tutorial = { git = "https://github.com/friendlyflow/sicompass", rev = "5853e193446a065739e124d9ddf20298d1e0d32c" }
 
 serde = "1"
 serde_json = "1"

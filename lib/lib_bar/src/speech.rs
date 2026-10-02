@@ -1,4 +1,4 @@
-//! Super+T: say the time, through speech-dispatcher.
+//! Super+D: say the time and the date, through speech-dispatcher.
 //!
 //! `spd-say` rather than the screen reader: the bar never has the keyboard,
 //! so a screen reader would not read it, and the time should be heard whether

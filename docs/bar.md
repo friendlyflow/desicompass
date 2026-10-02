@@ -21,7 +21,7 @@ the README.
 |---|---|---|---|
 | Starting | Finds it (`bar::resolve_command`), runs it, restarts it with a back-off (`managed_client.rs`, shared with the superkey) | Says `hello`, then `place` | |
 | Placing | Gives it its edge of the output and the height it asked for. Tiles, maximised and full-screen windows get what is left (`usable_area`). Keeps it out of the tiler, the window list and the focus stack | Works out 1.7 lines of its font, tells the compositor again when the font scale or the position changes | |
-| Keys | Super+T sends `say-time`. Super+B and Super+N open the superkey on Status and Notifications | Runs `spd-say` | Shows Status, Notifications |
+| Keys | Super+D sends `say-time`. Super+B and Super+N open the superkey on Status and Notifications | Runs `spd-say` | Shows Status, Notifications |
 | Settings | Nothing | Follows `bar.json` | Writes `bar.json` (Settings > Bar) |
 | Status | Nothing | Follows the services, writes `status-<display>.json` | Lists it (Status) |
 | Notifications | Nothing | Is `org.freedesktop.Notifications` | Lists them, Enter calls `CloseNotification` |
@@ -162,10 +162,11 @@ that is the private bus `dbus-run-session` started. A program started inside
 the session (from Sicompass or the superkey) is on it. A systemd user service is
 on the user bus instead, and its icon never appears.
 
-## Super+T
+## Super+D
 
-The compositor sends `say-time`, and the bar runs `spd-say` with the time in the
-session's language (`It is 14:05`, `Het is 14:05`), at the `message` priority so
+The compositor sends `say-time`, and the bar runs `spd-say` with the time and
+then the date in the session's language (`It is 14:05, Wednesday 30 September
+2026`), at the `message` priority so
 it is not queued behind a long reading. speech-dispatcher is what Orca speaks
 through too, so the two share a voice and a queue, and the bar never starts or
 stops Orca. `spd-say` comes from the session's `PATH`: the module enables Orca,

@@ -24,10 +24,11 @@
 //! | `Super+Return` | spawn the terminal |
 //! | `Super+Shift+Q` | close the focused window |
 //! | `Super+Shift+E` | end the session (press twice, on separate presses) |
-//! | `Super` (tapped alone) | open or close the superkey |
+//! | `Super` (tapped alone) | open the superkey (Escape closes it) |
 //! | `Super+W` / `Super+C` / `Super+S` | open the superkey on windows / controls / settings |
 //! | `Super+B` / `Super+N` | open the superkey on the status / the notifications |
-//! | `Super+T` | say the time |
+//! | `Super+T` | open the superkey on the tutorial |
+//! | `Super+D` | say the time and the date |
 
 #[cfg(target_os = "linux")]
 mod a11y_keyboard_monitor;

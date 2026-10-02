@@ -308,7 +308,7 @@
             });
 
           # The bar, a sicompass-ui client built exactly like the superkey. It
-          # runs `spd-say` (Super+T) and `wpctl` (the volume) from the
+          # runs `spd-say` (Super+D) and `wpctl` (the volume) from the
           # session's PATH rather than bundling them, so they are the ones
           # that match the running speech-dispatcher and PipeWire. The module
           # enables Orca, which brings speech-dispatcher; without `wpctl`

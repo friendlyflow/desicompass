@@ -909,6 +909,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sicompass-sdk",
+ "sicompass-tutorial",
  "sicompass-ui",
  "tempfile",
  "tracing",
@@ -3248,9 +3249,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sicompass-tutorial"
+version = "0.2.0"
+source = "git+https://github.com/friendlyflow/sicompass?rev=5853e193446a065739e124d9ddf20298d1e0d32c#5853e193446a065739e124d9ddf20298d1e0d32c"
+dependencies = [
+ "serde_json",
+ "sicompass-sdk",
+]
+
+[[package]]
 name = "sicompass-ui"
 version = "0.2.0"
-source = "git+https://github.com/friendlyflow/sicompass-ui?rev=5729045cf6f5b48e7c1b5bbecdf71025e5075d32#5729045cf6f5b48e7c1b5bbecdf71025e5075d32"
+source = "git+https://github.com/friendlyflow/sicompass-ui?rev=45f6a676b208db6bf2f70520d64f21f815f0fabc#45f6a676b208db6bf2f70520d64f21f815f0fabc"
 dependencies = [
  "accesskit",
  "accesskit_macos",

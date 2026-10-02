@@ -197,13 +197,99 @@ fn it_starts_hidden_and_a_show_opens_the_root_in_search() {
         [
             "+ Notifications (0) [n]",
             "+ Windows [w]",
-            "+ Controls [c]",
             "+ Status [b]",
+            "+ Tutorial [t]",
             "+ Settings [s]",
+            "+ Controls [c]",
             "-b Firefox",
             "-b Foot"
         ]
     );
+}
+
+/// The tutorial teaches the app's keys, so inside it the superkey is the app:
+/// General mode, with the whole keymap.
+fn assert_tutorial_in_general(h: &Harness) {
+    assert_eq!(h.r.coordinate, Coordinate::General);
+    assert!(!h.r.launcher_mode, "the app's keymap, not the launcher's");
+    let sections = h.rows();
+    assert_eq!(sections.len(), 7, "{sections:?}");
+    assert!(sections[0].starts_with("+ Getting Started"), "{sections:?}");
+}
+
+#[test]
+fn super_t_opens_the_tutorial_in_general_mode() {
+    let mut h = harness();
+    h.show(Section::Tutorial, windows());
+    h.frame();
+    assert_tutorial_in_general(&h);
+
+    let sections = h.rows();
+    h.key(Keycode::Right);
+    assert_eq!(h.r.coordinate, Coordinate::General);
+    let inside = h.rows();
+    assert!(!inside.is_empty());
+    assert_ne!(inside, sections, "Right went into Getting Started");
+}
+
+#[test]
+fn enter_or_right_on_the_tutorial_row_lands_in_general_mode() {
+    for k in [Keycode::Return, Keycode::Right] {
+        let mut h = harness();
+        h.show(Section::Root, windows());
+        h.type_text("Tutorial");
+        h.key(k);
+        assert_tutorial_in_general(&h);
+    }
+}
+
+#[test]
+fn left_out_of_the_tutorial_is_the_launcher_again() {
+    let mut h = harness();
+    h.show(Section::Tutorial, windows());
+    h.frame();
+    h.key(Keycode::Left);
+    assert_eq!(h.r.coordinate, Coordinate::SimpleSearch);
+    assert!(h.r.launcher_mode);
+    assert_eq!(
+        h.r.current_list_item().map(|i| i.label.clone()).as_deref(),
+        Some("+ Tutorial [t]")
+    );
+    // And Escape there still hides it.
+    h.key(Keycode::Escape);
+    assert_eq!(h.next_message(), FromSuperkey::Hide);
+}
+
+#[test]
+fn a_show_after_leaving_from_inside_the_tutorial_is_the_launcher() {
+    let mut h = harness();
+    h.show(Section::Tutorial, windows());
+    h.frame();
+    h.show(Section::Windows, windows());
+    h.frame();
+    assert_eq!(h.r.coordinate, Coordinate::SimpleSearch);
+    assert!(h.r.launcher_mode);
+    assert_eq!(h.rows(), ["-b vim (foot)", "-b Inbox (sicompass)"]);
+}
+
+#[test]
+fn the_tutorials_inputs_are_edited_in_insert_mode() {
+    let mut h = harness();
+    h.show(Section::Tutorial, windows());
+    h.frame();
+    h.key(Keycode::Right); // Getting Started
+    let row = h
+        .rows()
+        .iter()
+        .position(|l| l.contains("Edit me"))
+        .expect("Getting Started has an input");
+    for _ in 0..row {
+        h.key(Keycode::Down);
+    }
+    h.key(Keycode::I);
+    assert_eq!(h.r.coordinate, Coordinate::Insert);
+    h.key(Keycode::Escape);
+    assert_eq!(h.r.coordinate, Coordinate::General);
 }
 
 #[test]
@@ -463,4 +549,176 @@ fn enter_on_a_tray_item_activates_it_and_gets_out_of_the_way() {
         ["activate :1.42/StatusNotifierItem"]
     );
     assert_eq!(h.next_message(), FromSuperkey::Hide);
+}
+
+impl Harness {
+    /// Put the cursor on the first row containing `text`, at this level.
+    fn go_to(&mut self, text: &str) {
+        let row = self
+            .rows()
+            .iter()
+            .position(|l| l.contains(text))
+            .unwrap_or_else(|| panic!("no row with {text:?}: {:?}", self.rows()));
+        // Not Home: twice in a row, from anywhere, is the way to the root.
+        while self.r.list_index > row {
+            self.key(Keycode::Up);
+        }
+        while self.r.list_index < row {
+            self.key(Keycode::Down);
+        }
+    }
+
+    fn row_with(&self, text: &str) -> String {
+        self.rows()
+            .into_iter()
+            .find(|l| l.contains(text))
+            .unwrap_or_else(|| panic!("no row with {text:?}: {:?}", self.rows()))
+    }
+
+    /// The bar writes its status, as it does all the time in a session: the
+    /// superkey has something new to show.
+    fn status_changes(&mut self) {
+        std::thread::sleep(status::POLL_INTERVAL);
+        status::write(&status_path(self.dir.path()), &some_status()).unwrap();
+        for _ in 0..3 {
+            self.frame();
+            std::thread::sleep(status::POLL_INTERVAL);
+        }
+    }
+
+    /// Into Getting Started, in General mode.
+    fn getting_started(&mut self) {
+        self.show(Section::Tutorial, windows());
+        self.frame();
+        self.go_to("Getting Started");
+        self.key(Keycode::Right);
+    }
+
+    /// Out of the tutorial, hidden, and back in with Super+T.
+    fn hide_and_back(&mut self) {
+        self.key(Keycode::Left);
+        self.key(Keycode::Left);
+        self.key(Keycode::Escape);
+        assert_eq!(self.next_message(), FromSuperkey::Hide);
+        self.getting_started();
+    }
+}
+
+/// What a session does to a tutorial edit: the bar's status changes under it,
+/// the user leaves the section and the superkey, and comes back.
+fn assert_tutorial_edit_kept(h: &mut Harness, text: &str, edited: &str) {
+    assert_eq!(h.row_with(text), edited, "applied");
+    h.status_changes();
+    assert_eq!(h.row_with(text), edited, "kept through a status change");
+    h.hide_and_back();
+    assert_eq!(h.row_with(text), edited, "kept through hiding the superkey");
+}
+
+#[test]
+fn a_tutorial_checkbox_stays_ticked() {
+    let mut h = harness();
+    h.getting_started();
+    h.go_to("Practice checkbox");
+    h.key(Keycode::Return);
+    assert_tutorial_edit_kept(
+        &mut h,
+        "Practice checkbox",
+        "-cc Practice checkbox, press Enter to toggle me",
+    );
+}
+
+#[test]
+fn a_tutorial_input_keeps_what_was_typed() {
+    let mut h = harness();
+    h.getting_started();
+    h.go_to("Edit me");
+    h.key(Keycode::A);
+    h.type_text(" again");
+    h.key(Keycode::Return);
+    assert_eq!(h.r.coordinate, Coordinate::General);
+    assert_tutorial_edit_kept(
+        &mut h,
+        "Edit me",
+        "-i Edit me, press i or a then Enter: hello world again",
+    );
+}
+
+#[test]
+fn a_tutorial_radio_keeps_its_choice() {
+    let mut h = harness();
+    h.show(Section::Tutorial, windows());
+    h.frame();
+    h.go_to("playground");
+    h.key(Keycode::Right);
+    h.go_to("Pick a color");
+    h.key(Keycode::Right);
+    h.go_to("green");
+    h.key(Keycode::Return);
+    assert_eq!(h.rows(), ["-r blue", "-rc green", "-r red"]);
+    h.status_changes();
+    assert_eq!(h.rows(), ["-r blue", "-rc green", "-r red"]);
+}
+
+#[test]
+fn home_twice_in_the_tutorial_is_the_superkeys_root() {
+    let mut h = harness();
+    h.getting_started();
+    h.key(Keycode::Home);
+    h.key(Keycode::Home);
+    assert_eq!(h.r.coordinate, Coordinate::SimpleSearch);
+    assert!(h.r.launcher_mode);
+    assert_eq!(
+        h.r.current_list_item().map(|i| i.label.clone()).as_deref(),
+        Some("+ Tutorial [t]")
+    );
+}
+
+#[test]
+fn super_t_after_hiding_inside_the_tutorial_is_general_mode_again() {
+    let mut h = harness();
+    h.getting_started();
+    h.key(Keycode::Tab);
+    assert_eq!(h.r.coordinate, Coordinate::SimpleSearch, "the app's own search");
+    h.show(Section::Tutorial, windows());
+    h.frame();
+    assert_tutorial_in_general(&h);
+}
+
+#[test]
+fn escape_in_the_tutorial_closes_the_superkey() {
+    let mut h = harness();
+    h.getting_started();
+    assert_eq!(h.r.coordinate, Coordinate::General);
+    h.key(Keycode::Escape);
+    assert_eq!(h.next_message(), FromSuperkey::Hide);
+}
+
+#[test]
+fn the_tutorial_has_no_tabs_undo_or_timeline_in_the_superkey() {
+    let mut h = harness();
+    h.getting_started();
+    h.go_to("Practice checkbox");
+    h.key(Keycode::Return);
+    let ticked = h.row_with("Practice checkbox");
+    let ctrl = |h: &mut Harness, k: Keycode, m: Mod| {
+        sicompass_ui::events::dispatch_key(&mut h.r, Some(k), m);
+        h.frame();
+    };
+    ctrl(&mut h, Keycode::Z, Mod::LCTRLMOD);
+    ctrl(&mut h, Keycode::Z, Mod::LCTRLMOD | Mod::LSHIFTMOD);
+    assert_eq!(h.row_with("Practice checkbox"), ticked, "no undo or redo");
+    for (k, m) in [
+        (Keycode::T, Mod::LCTRLMOD),
+        (Keycode::T, Mod::LCTRLMOD | Mod::LSHIFTMOD),
+        (Keycode::Tab, Mod::LCTRLMOD),
+        (Keycode::_1, Mod::LCTRLMOD),
+        (Keycode::_9, Mod::LCTRLMOD),
+    ] {
+        ctrl(&mut h, k, m);
+    }
+    h.key(Keycode::T);
+    h.key(Keycode::Z);
+    assert_eq!(h.r.tabs.len(), 1);
+    assert_eq!(h.r.coordinate, Coordinate::General);
+    assert_eq!(h.row_with("Practice checkbox"), ticked);
 }

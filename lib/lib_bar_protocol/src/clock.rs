@@ -1,4 +1,4 @@
-//! The clock, as the bar shows it, the superkey lists it and Super+T says it.
+//! The clock, as the bar shows it, the superkey lists it and Super+D says it.
 //!
 //! Hand-rolled like the login screen's (`loginsicompass/src/provider.rs`):
 //! three formats in four languages are the whole need, and `chrono` would be
@@ -270,23 +270,29 @@ pub fn bar_text(t: &LocalTime, language: &str, seconds: bool) -> String {
 
 /// The date and time in full, for reading: `Wednesday 30 September 2026, 14:05`.
 pub fn long_text(t: &LocalTime, language: &str) -> String {
+    format!("{}, {}", long_date(t, language), t.time(false))
+}
+
+/// The date in full: `Wednesday 30 September 2026`.
+fn long_date(t: &LocalTime, language: &str) -> String {
     let (l, wd, mo) = names(t, language, false);
-    let time = t.time(false);
     match l {
-        Lang::De => format!("{wd}, {}. {mo} {}, {time}", t.day, t.year),
-        _ => format!("{wd} {} {mo} {}, {time}", t.day, t.year),
+        Lang::De => format!("{wd}, {}. {mo} {}", t.day, t.year),
+        _ => format!("{wd} {} {mo} {}", t.day, t.year),
     }
 }
 
-/// What Super+T says: `It is 14:05`.
+/// What Super+D says: the time, then the date,
+/// `It is 14:05, Wednesday 30 September 2026`.
 pub fn spoken_text(t: &LocalTime, language: &str) -> String {
-    match lang(language) {
+    let time = match lang(language) {
         Lang::En => format!("It is {}", t.time(false)),
         Lang::Nl => format!("Het is {}", t.time(false)),
         // Written the way French reads a time aloud.
         Lang::Fr => format!("Il est {} h {:02}", t.hour, t.minute),
         Lang::De => format!("Es ist {} Uhr", t.time(false)),
-    }
+    };
+    format!("{time}, {}", long_date(t, language))
 }
 
 #[cfg(test)]
@@ -343,12 +349,24 @@ mod tests {
     }
 
     #[test]
-    fn what_super_t_says() {
+    fn what_super_d_says() {
         let t = LocalTime::from_offset(WED, 2 * 3600);
-        assert_eq!(spoken_text(&t, "en-US"), "It is 14:05");
-        assert_eq!(spoken_text(&t, "nl-BE"), "Het is 14:05");
-        assert_eq!(spoken_text(&t, "fr-BE"), "Il est 14 h 05");
-        assert_eq!(spoken_text(&t, "de-BE"), "Es ist 14:05 Uhr");
+        assert_eq!(
+            spoken_text(&t, "en-US"),
+            "It is 14:05, Wednesday 30 September 2026"
+        );
+        assert_eq!(
+            spoken_text(&t, "nl-BE"),
+            "Het is 14:05, woensdag 30 september 2026"
+        );
+        assert_eq!(
+            spoken_text(&t, "fr-BE"),
+            "Il est 14 h 05, mercredi 30 septembre 2026"
+        );
+        assert_eq!(
+            spoken_text(&t, "de-BE"),
+            "Es ist 14:05 Uhr, Mittwoch, 30. September 2026"
+        );
         assert_eq!(speech_language("nl-BE"), "nl");
         assert_eq!(speech_language("xx"), "en");
     }

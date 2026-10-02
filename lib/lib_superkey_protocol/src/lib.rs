@@ -44,7 +44,7 @@ pub const MAX_TITLE: usize = 256;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Section {
-    /// The whole list: the three sections, then the programs. A bare Super tap.
+    /// The whole list: the sections, then the programs. A bare Super tap.
     Root,
     /// The open windows. Super+W.
     Windows,
@@ -56,6 +56,8 @@ pub enum Section {
     Status,
     /// The notifications. Super+N.
     Notifications,
+    /// The sicompass tutorial, which the app leaves out in a session. Super+T.
+    Tutorial,
 }
 
 /// One toplevel, as the superkey lists it.
@@ -257,6 +259,7 @@ mod tests {
             Section::Settings,
             Section::Status,
             Section::Notifications,
+            Section::Tutorial,
         ] {
             let m = ToSuperkey::Show {
                 section,

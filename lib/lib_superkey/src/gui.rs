@@ -27,8 +27,8 @@ use sicompass_sdk::ffon::IdArray;
 use sicompass_ui::accessibility::{
     self, AccessibilitySettings, KEY_FONT_SCALE, KEY_LANGUAGE, SharedAccessibility,
 };
-use sicompass_ui::app_state::{AppConfig, AppRenderer, AppState, PaletteTheme};
-use sicompass_ui::handlers::open_in_search;
+use sicompass_ui::app_state::{AppConfig, AppRenderer, AppState, Coordinate, PaletteTheme};
+use sicompass_ui::handlers::{self, open_in_search};
 use sicompass_ui::registry::HostHooks;
 
 use crate::actions::Action;
@@ -36,7 +36,10 @@ use crate::apps::Catalogue;
 use crate::i18n::{t, t_with};
 use crate::ipc::Ipc;
 use crate::power;
-use crate::provider::{Shared, SharedState, SuperkeyProvider, setting_label, value_label};
+use crate::provider::{
+    Node, SECTIONS, Shared, SharedState, SuperkeyProvider, TutorialState, setting_label,
+    value_label,
+};
 use crate::status::StatusActions;
 
 /// Where the cursor lands for `section`, as the renderer addresses rows:
@@ -45,20 +48,76 @@ use crate::status::StatusActions;
 /// In Windows it lands on the second window, the one used before the current:
 /// Super+W then Enter goes back to it, the way Alt+Tab does.
 pub fn landing(section: Section, windows: &[WindowInfo]) -> IdArray {
-    let parts: &[usize] = match section {
-        Section::Root => &[0, 0],
-        Section::Notifications => &[0, 0, 0],
-        Section::Windows if windows.len() >= 2 => &[0, 1, 1],
-        Section::Windows => &[0, 1, 0],
-        Section::Controls => &[0, 2, 0],
-        Section::Status => &[0, 3, 0],
-        Section::Settings => &[0, 4, 0],
+    let node = match section {
+        Section::Root => {
+            let mut id = IdArray::new();
+            id.push(0);
+            id.push(0);
+            return id;
+        }
+        Section::Notifications => Node::Notifications,
+        Section::Windows => Node::Windows,
+        Section::Status => Node::Status,
+        Section::Tutorial => Node::Tutorial,
+        Section::Settings => Node::Settings,
+        Section::Controls => Node::Controls,
     };
+    let row = usize::from(section == Section::Windows && windows.len() >= 2);
     let mut id = IdArray::new();
-    for &p in parts {
-        id.push(p);
-    }
+    id.push(0);
+    id.push(section_index(node));
+    id.push(row);
     id
+}
+
+/// Whether `id` is a row inside the Tutorial section, at any depth.
+fn in_tutorial(id: &IdArray) -> bool {
+    id.depth() > 2 && id.get(1) == Some(section_index(Node::Tutorial))
+}
+
+/// Inside the tutorial the superkey is the app: General mode and the app's
+/// whole keymap, because those are the keys the tutorial teaches (Insert mode
+/// on its inputs among them). Everywhere else it is a launcher, in simple
+/// search. Run every frame, after the keys, so however the tutorial was
+/// entered (Super+T, Enter or Right on its row) or left (Left at its top), the
+/// next frame is drawn and announced in the right mode.
+fn follow_tutorial_mode(r: &mut AppRenderer) {
+    let inside = in_tutorial(&r.current_id);
+    if inside && r.launcher_mode {
+        r.launcher_mode = false;
+        if r.coordinate == Coordinate::SimpleSearch {
+            // Escape out of search, the app's own way into General: it
+            // rebuilds the list on the row search started from and says so.
+            r.previous_coordinate = Coordinate::General;
+            handlers::handle_escape(r);
+        }
+    } else if !inside && !r.launcher_mode {
+        r.launcher_mode = true;
+        // Home twice goes to the app's root, the list of providers, which in a
+        // launcher is above anything its user can do: land on the Tutorial
+        // row instead.
+        if r.current_id.depth() < 2 {
+            let mut at = IdArray::new();
+            at.push(0);
+            at.push(section_index(Node::Tutorial));
+            r.current_id = at;
+            sicompass_ui::provider::set_provider_path(r, "/");
+            sicompass_ui::provider::refresh_current_directory(r);
+            r.coordinate = Coordinate::General;
+        }
+        if r.coordinate.is_general() {
+            // Tab, as `open_in_search` does it: search, announced.
+            handlers::handle_tab(r);
+        }
+    }
+}
+
+/// Where `node` sits among the root's sections.
+fn section_index(node: Node) -> usize {
+    SECTIONS
+        .iter()
+        .position(|&n| n == node)
+        .expect("every section the compositor names is in SECTIONS")
 }
 
 /// The superkey's answers to the renderer.
@@ -197,6 +256,31 @@ impl SuperkeyHooks {
             self.shared().error = Some(t_with("superkey-status-failed", &[("error", &e)]));
         }
         self.tick_clock();
+        follow_tutorial_mode(r);
+        self.remember_tutorial(r);
+    }
+
+    /// Copy the tutorial, as the user has it, from the renderer into
+    /// [`Shared::tutorial`]. Every frame inside it, after the keys and before
+    /// the providers tick, so no edit is ever missing from a rebuild.
+    fn remember_tutorial(&self, r: &AppRenderer) {
+        if !in_tutorial(&r.current_id) {
+            return;
+        }
+        let at = section_index(Node::Tutorial);
+        let mut id = IdArray::new();
+        id.push(0);
+        id.push(at);
+        let rows = sicompass_sdk::ffon::get_ffon_at_id(&r.ffon, &id)
+            .and_then(|a| a.get(at))
+            .and_then(|e| e.as_obj())
+            .map(|o| o.children.clone());
+        if let Some(rows) = rows {
+            self.shared().tutorial = Some(TutorialState {
+                locale: sicompass_sdk::localize::current_locale(),
+                rows,
+            });
+        }
     }
 
     /// The Status section's clock, moved on the minute: a row that changed
@@ -232,6 +316,10 @@ impl SuperkeyHooks {
                     }
                 }
                 r.suspended = false;
+                // A launcher again, whatever it was when it was hidden (the
+                // tutorial turns that off): `follow_tutorial_mode` turns it
+                // off again if this lands inside the tutorial.
+                r.launcher_mode = true;
                 open_in_search(r, &id);
             }
             ToSuperkey::Windows { windows } => {
@@ -428,10 +516,24 @@ impl SuperkeyHooks {
 /// provider recognises a level by its current label.
 fn relocalize(r: &mut AppRenderer) {
     sicompass_ui::provider::refresh_all_provider_root_keys(r);
-    let id = r.current_id.clone();
+    let id = relocalized_id(&r.current_id);
     if id.depth() >= 2 {
         open_in_search(r, &id);
     }
+}
+
+/// Where a language change reopens. Inside the tutorial, at the Tutorial row:
+/// the embedded provider knows its levels only by their labels, which are in
+/// the old language. sicompass collapses its tutorial the same way.
+fn relocalized_id(id: &IdArray) -> IdArray {
+    let tutorial = section_index(Node::Tutorial);
+    if id.depth() > 2 && id.get(1) == Some(tutorial) {
+        let mut at = IdArray::new();
+        at.push(0);
+        at.push(tutorial);
+        return at;
+    }
+    id.clone()
 }
 
 /// What the superkey needs from the command line.
@@ -527,6 +629,10 @@ pub fn apply_startup(r: &mut AppRenderer, settings: &AccessibilitySettings, stan
     // frame. Nothing is ever put in it.
     r.settings_queue = Some(Arc::new(Mutex::new(Vec::new())));
     r.launcher_mode = true;
+    // Stays on inside the tutorial, where `launcher_mode` goes off: Escape in
+    // General still closes the superkey, and the app's tabs, undo and timeline
+    // keys do nothing.
+    r.launcher_window = true;
     r.palette_theme = if settings.color_scheme.as_deref() == Some("light") {
         PaletteTheme::Light
     } else {
@@ -555,8 +661,25 @@ mod tests {
         assert_eq!(parts(&landing(Section::Windows, &two)), [0, 1, 1]);
         assert_eq!(parts(&landing(Section::Windows, &one)), [0, 1, 0]);
         assert_eq!(parts(&landing(Section::Windows, &[])), [0, 1, 0]);
-        assert_eq!(parts(&landing(Section::Controls, &two)), [0, 2, 0]);
-        assert_eq!(parts(&landing(Section::Status, &two)), [0, 3, 0]);
+        assert_eq!(parts(&landing(Section::Status, &two)), [0, 2, 0]);
+        assert_eq!(parts(&landing(Section::Tutorial, &two)), [0, 3, 0]);
         assert_eq!(parts(&landing(Section::Settings, &two)), [0, 4, 0]);
+        assert_eq!(parts(&landing(Section::Controls, &two)), [0, 5, 0]);
+    }
+
+    #[test]
+    fn a_language_change_inside_the_tutorial_reopens_at_its_row() {
+        let tutorial = section_index(Node::Tutorial);
+        let mut deep = IdArray::new();
+        for p in [0, tutorial, 0, 3] {
+            deep.push(p);
+        }
+        assert_eq!(parts(&relocalized_id(&deep)), [0, tutorial]);
+
+        let mut settings = IdArray::new();
+        for p in [0, section_index(Node::Settings), 1] {
+            settings.push(p);
+        }
+        assert_eq!(relocalized_id(&settings), settings);
     }
 }

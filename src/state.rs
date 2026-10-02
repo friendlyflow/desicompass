@@ -577,15 +577,15 @@ pub fn apply_keybinding(
         BindingAction::Spawn => state.spawn(),
         BindingAction::Quit => state.request_quit(),
         BindingAction::SayTime => state.say_time(),
-        BindingAction::Superkey(Section::Root) => state.toggle_superkey(),
+        BindingAction::Superkey(Section::Root) => state.open_superkey(),
         BindingAction::Superkey(section) => state.show_superkey(section),
     }
 
     FilterResult::Intercept(())
 }
 
-/// Feed a key event to the bare-Super-tap detector, and open or close the
-/// superkey when it completes one. Called by both backends before anything
+/// Feed a key event to the bare-Super-tap detector, and open the superkey when
+/// it completes one. Called by both backends before anything
 /// else looks at the key, for presses and releases alike; the key itself goes
 /// on to the client as usual.
 pub fn observe_super_tap(
@@ -599,7 +599,7 @@ pub fn observe_super_tap(
     };
     let other_mods = modifiers.ctrl || modifiers.alt || modifiers.shift;
     if state.super_tap.observe(sym.raw(), pressed, other_mods) {
-        state.toggle_superkey();
+        state.open_superkey();
     }
 }
 

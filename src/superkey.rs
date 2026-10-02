@@ -385,11 +385,11 @@ impl State {
         self.focus_superkey_surface();
     }
 
-    /// The bare Super tap: open at the root, or close if it is open.
-    pub fn toggle_superkey(&mut self) {
-        if self.superkey.is_shown() {
-            self.hide_superkey(true);
-        } else {
+    /// The bare Super tap: open at the root. While it is open the tap does
+    /// nothing, so a stray Super keeps the user's place (deep in the tutorial,
+    /// say). Escape is what closes it.
+    pub fn open_superkey(&mut self) {
+        if !self.superkey.is_shown() {
             self.show_superkey(Section::Root);
         }
     }

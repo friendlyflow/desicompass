@@ -95,5 +95,7 @@ libc = "0.2"
 # It has to be here, in the workspace root, to apply to lib/lib_superkey.
 # [patch."https://github.com/friendlyflow/sicompass-ui"]
 # sicompass-ui = { path = "../sicompass-ui" }
+# [patch."https://github.com/friendlyflow/sicompass"]
+# sicompass-tutorial = { path = "../sicompass/lib/lib_tutorial" }
 # [patch.crates-io]
 # sicompass-sdk = { path = "../sicompass-plugin-sdk" }

@@ -116,7 +116,7 @@ for it too, and:
 - **The bar never has the keyboard**, so it has no AccessKit tree. Everything
   it shows must also be in the superkey's Status section, which is how a
   screen reader reaches it.
-- **It never starts or stops Orca.** Super+T speaks through `spd-say`, which
+- **It never starts or stops Orca.** Super+D speaks through `spd-say`, which
   shares speech-dispatcher with Orca.
 - **The tiles get `State::usable_area()`, never `output_size()`**, so nothing
   but the superkey covers the bar.

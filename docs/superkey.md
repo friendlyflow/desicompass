@@ -1,10 +1,32 @@
 # The superkey
 
 `desicompass-superkey` (`lib/lib_superkey`) is the list a bare Super tap opens:
-the open windows, the controls (suspend, restart, shut down, log out), the
-settings (accessibility, then the bar), the status the bar shows, then every
-installed program. It is a sicompass-ui
-client, like the login screen, and it never links the Sicompass application.
+the notifications, the open windows, the status the bar shows, the Sicompass
+tutorial, the settings (accessibility, then the bar), the controls (suspend,
+restart, shut down, log out), then every installed program. It is a
+sicompass-ui client, like the login screen, and it never links the Sicompass
+application. It links one provider crate, `sicompass-tutorial`, for the
+Tutorial section: in a session the app leaves the tutorial out
+(`programs::SESSION_OWNED_PROGRAMS`), and the superkey shows it instead.
+Inside that section the superkey is not a launcher: `gui::follow_tutorial_mode`
+turns `launcher_mode` off and leaves search for General mode, so the app's
+keymap (Insert mode on the tutorial's inputs among it) works there, and turns
+both back on when the cursor leaves the section. `launcher_window` stays on
+throughout: Escape in General closes the superkey there too, and the keys only
+the app has (tabs, undo and redo, the timeline) do nothing.
+
+A bare Super tap only opens the superkey. While it is open the tap does
+nothing (`State::open_superkey`), so a stray Super never loses the user's
+place. Escape closes it.
+
+What the user changes in the tutorial (a box ticked, a radio chosen, an input
+edited) lives in the renderer's tree only, as it does in the app, so the
+superkey must not throw that tree away. Inside the tutorial its `tick` reports
+no change (the bar's status and the clock wait until the user is out of it),
+and every frame the host copies the tutorial's rows into `Shared::tutorial`
+(`gui::remember_tutorial`), which the provider builds the Tutorial section
+from. An edit then lasts through leaving the section and hiding the superkey,
+until the language changes.
 
 This document is about how the compositor and the superkey work together. The
 user-facing side is in the README.
@@ -14,7 +36,7 @@ user-facing side is in the README.
 | | Compositor (`src/superkey.rs`) | Superkey (`lib/lib_superkey`) |
 |---|---|---|
 | Starting | Finds it (`superkey::resolve_command`), runs it once, restarts it with a back-off, gives up after 5 starts in 60 s | Says `hello` |
-| Keys | Detects the bare Super tap (`keybindings::SuperTap`), binds Super+W/C/S/B/N | Everything typed while it has the keyboard |
+| Keys | Detects the bare Super tap (`keybindings::SuperTap`), binds Super+W/C/S/B/N/T | Everything typed while it has the keyboard |
 | Placing | Keeps its toplevel out of the tiler, the window list and the focus stack. Gives it the whole output, full screen, on top | Nothing: it is told its size |
 | Showing | Sends `show`, moves the keyboard to it, maps it on its next frame | Opens the section in simple search, draws again |
 | Hiding | Unmaps it, sends `hidden`, gives the keyboard back | Stops drawing (`AppRenderer::suspended`) |
@@ -56,7 +78,7 @@ The compositor makes two socketpairs before it starts the superkey:
 
 ```text
 compositor -> superkey
-  {"type":"show","section":"root|notifications|windows|controls|settings|status","windows":[{"id":3,"title":"foot","app_id":"foot","focused":true}]}
+  {"type":"show","section":"root|notifications|windows|status|tutorial|settings|controls","windows":[{"id":3,"title":"foot","app_id":"foot","focused":true}]}
   {"type":"windows","windows":[...]}     the list changed while it is shown
   {"type":"hidden"}                      sent on every hide
 superkey -> compositor
