@@ -61,6 +61,53 @@
         LIBGL_DRIVERS_PATH = "/run/opengl-driver/lib/dri";
         GBM_BACKENDS_PATH = "/run/opengl-driver/lib/gbm";
       };
+
+      # A sicompass plugin built from its checkout, laid out the way the Store
+      # unpacks one: `$out/<name>/` holding the program as `<entry>`, its
+      # `plugin.json`, `LICENSE` and `THIRD-PARTY-LICENSES.html` when present,
+      # `assets/` and `locales/*.ftl`. The reference for that layout is
+      # `sicompass-plugin pack` (`collect_files` in the sicompass-plugin-sdk
+      # repo's `src/package.rs`); change the two together.
+      #
+      # Generic on purpose: every plugin repo is one Cargo package whose bin is
+      # its package name, with `name` and `entry` in plugin.json, so nothing in
+      # a plugin repo is specific to this. Built with glibc, not the static musl
+      # of a release, which only matters for a binary copied between machines.
+      #
+      # `src` is a checkout, typically `builtins.fetchGit "file:///…"`, which
+      # takes the working tree's tracked files and leaves out `target/`,
+      # `build/` and `dist/`.
+      buildPlugin = pkgs: src:
+        let
+          craneLib = crane.mkLib pkgs;
+          manifest = builtins.fromJSON (builtins.readFile "${src}/plugin.json");
+          package = (builtins.fromTOML (builtins.readFile "${src}/Cargo.toml")).package;
+          args = {
+            inherit src;
+            pname = package.name;
+            version = package.version or manifest.version or "0";
+            strictDeps = true;
+            cargoExtraArgs = "--locked --bin ${package.name}";
+            # The plugin's own CI runs its suite.
+            doCheck = false;
+          };
+        in
+        craneLib.buildPackage (args // {
+          cargoArtifacts = craneLib.buildDepsOnly args;
+          installPhaseCommand = ''
+            dir=$out/${manifest.name}
+            mkdir -p "$dir"
+            install -Dm755 "''${CARGO_TARGET_DIR:-target}/release/${package.name}" "$dir/${manifest.entry}"
+            install -Dm644 plugin.json "$dir/plugin.json"
+            for f in LICENSE THIRD-PARTY-LICENSES.html; do
+              if [ -f "$f" ]; then install -Dm644 "$f" "$dir/$f"; fi
+            done
+            if [ -d assets ]; then cp -r assets "$dir/assets"; fi
+            if [ -d locales ]; then
+              (cd locales && find . -name '*.ftl' -exec install -Dm644 {} "$dir/locales/{}" \;)
+            fi
+          '';
+        });
     in
     {
       devShells = forAllSystems (system:
@@ -385,6 +432,30 @@
             });
         });
 
+      # `buildPlugin pkgs src`, for a configuration that wants a plugin built
+      # outside `services.desicompass.dev.plugins`.
+      lib = { inherit buildPlugin; };
+
+      # The plugin builder against a minimal plugin tree, so CI exercises it
+      # without fetching a plugin repo.
+      checks = forAllSystems (system:
+        let
+          pkgs = nixpkgsFor.${system};
+          built = buildPlugin pkgs ./tests/fixture-plugin;
+        in
+        {
+          plugin-layout = pkgs.runCommand "plugin-layout" { } ''
+            test -x ${built}/fixture/plugin
+            test -f ${built}/fixture/plugin.json
+            test -f ${built}/fixture/locales/en-US.ftl
+            test -f ${built}/fixture/assets/note.txt
+            test -f ${built}/fixture/LICENSE
+            test ! -e ${built}/fixture/locales/notes.txt
+            test ! -e ${built}/bin
+            touch $out
+          '';
+        });
+
       # Opt-in NixOS integration. Enabling nothing changes nothing.
       #
       # Two steps on purpose, and the order matters on a machine someone
@@ -407,7 +478,8 @@
       #     running a second pair of packages, typically built from local
       #     working trees while the stable entry runs a release. A broken
       #     build costs a login attempt, and the stable session is one entry
-      #     away.
+      #     away. `dev.plugins` adds plugin checkouts to it, built the same
+      #     way, in place of the Store's copies.
       nixosModules.default = { config, lib, pkgs, ... }:
         let
           cfg = config.services.desicompass;
@@ -477,6 +549,24 @@
                   The sicompass the dev session runs. No default, because the
                   one this flake's lock file pins is the release the stable
                   session already has.
+                '';
+              };
+
+              plugins = lib.mkOption {
+                type = lib.types.listOf lib.types.path;
+                default = [ ];
+                example = lib.literalExpression ''
+                  map (n: builtins.fetchGit "file:///home/alice/src/friendlyflow/''${n}-plugin-sicompass")
+                    [ "terminal" "notes" ]'';
+                description = ''
+                  Plugin checkouts the dev session runs in place of the Store's
+                  copies. Each is built with `buildPlugin` and handed to
+                  sicompass through `SICOMPASS_PLUGIN_PATH`, so it wins over
+                  the user's copy of the same plugin, runs without asking for
+                  approval, and the Store leaves it alone. The stable session
+                  keeps the Store's copies. List only the plugins you are
+                  working on: the others keep their Store copies, and each one
+                  listed is compiled when its checkout changes.
                 '';
               };
             };
@@ -641,17 +731,28 @@
                 app = sicompassPkg;
               };
 
+              # `dev.plugins`, built and joined into one folder of plugins.
+              # Built with this flake's nixpkgs, like the dev packages, so the
+              # Rust they need does not depend on the system's channel.
+              devPlugins = pkgs.symlinkJoin {
+                name = "desicompass-dev-plugins";
+                paths = map (buildPlugin nixpkgsFor.${system}) cfg.dev.plugins;
+              };
+
               # The dev session, with its own journal identifier so
               # `journalctl -t desicompass-dev` holds only dev runs, and a
               # backtrace on panic, the likeliest way a dev build ends. The
-              # compositor passes its environment on to sicompass.
+              # compositor passes its environment on to sicompass and the
+              # superkey, which both read SICOMPASS_PLUGIN_PATH. A store path
+              # has no spaces, so the Exec line stays free of quoting.
               devSessionPackage = mkSessionPackage {
                 id = "desicompass-dev";
                 name = "Desicompass (dev)";
                 comment = "Desicompass and Sicompass as the dev packages build them";
                 compositor = cfg.dev.package;
                 app = cfg.dev.sicompassPackage;
-                env = [ "RUST_BACKTRACE=1" ];
+                env = [ "RUST_BACKTRACE=1" ]
+                  ++ lib.optional (cfg.dev.plugins != [ ]) "SICOMPASS_PLUGIN_PATH=${devPlugins}";
               };
             in
             lib.mkMerge [

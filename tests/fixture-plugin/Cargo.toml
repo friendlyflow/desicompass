@@ -1,0 +1,14 @@
+# The smallest plugin tree `buildPlugin` accepts, built by `nix flake check`
+# (`checks.plugin-layout` in flake.nix). Not a plugin that runs.
+[package]
+name = "fixture-plugin"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "fixture-plugin"
+path = "src/main.rs"
+
+# Its own workspace, like every plugin repo, and so not part of desicompass's.
+[workspace]
