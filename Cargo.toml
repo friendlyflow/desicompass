@@ -22,6 +22,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Keyboard-driven tiling Wayland compositor for sicompass"
+# The superkey and the bar are binaries in the workspace too, so a bare
+# `cargo run` needs to be told which one is the compositor.
+default-run = "desicompass"
 repository.workspace = true
 
 [[bin]]
