@@ -91,6 +91,12 @@ and shown and hidden by it. See
   out of `windows`, the tiler and the focus stack.
 - **The superkey never starts or stops Orca.** In a session, sicompass owns the
   screen reader.
+- **The superkey's Store tells sicompass nothing.** It writes only the plugins
+  folder and sicompass's `settings.json` (the approvals, the tier settings),
+  through `sicompass-store`, and sicompass follows both. It brings reqwest and
+  its TLS stack (cmake in the flake). Pin `sicompass-store` and
+  `sicompass-tutorial` to the same sicompass commit as the flake's `sicompass`
+  input, and move them together.
 - **The module never passes the compositor, the greeter or the superkey a flag
   an older release lacks.** The stable session and the login screen often run
   a release while the module comes from a working tree, and an unknown flag

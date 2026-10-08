@@ -24,6 +24,7 @@ use desicompass_bar_protocol::settings::{BarSettings, BarSettingsFile};
 use desicompass_bar_protocol::status::StatusFile;
 use desicompass_superkey_protocol::{FromSuperkey, Section, ToSuperkey, WindowInfo};
 use sicompass_sdk::ffon::IdArray;
+use sicompass_store::StoreProvider;
 use sicompass_ui::accessibility::{
     self, AccessibilitySettings, KEY_FONT_SCALE, KEY_LANGUAGE, SharedAccessibility,
 };
@@ -37,7 +38,7 @@ use crate::i18n::{t, t_with};
 use crate::ipc::Ipc;
 use crate::power;
 use crate::provider::{
-    Node, SECTIONS, Shared, SharedState, SuperkeyProvider, TutorialState, setting_label,
+    Node, PROGRAMS, SECTIONS, Shared, SharedState, SuperkeyProvider, TutorialState, setting_label,
     value_label,
 };
 use crate::status::StatusActions;
@@ -59,6 +60,7 @@ pub fn landing(section: Section, windows: &[WindowInfo]) -> IdArray {
         Section::Windows => Node::Windows,
         Section::Status => Node::Status,
         Section::Tutorial => Node::Tutorial,
+        Section::Store => Node::Store,
         Section::Settings => Node::Settings,
         Section::Controls => Node::Controls,
     };
@@ -70,45 +72,32 @@ pub fn landing(section: Section, windows: &[WindowInfo]) -> IdArray {
     id
 }
 
-/// Whether `id` is a row inside the Tutorial section, at any depth.
-fn in_tutorial(id: &IdArray) -> bool {
-    id.depth() > 2 && id.get(1) == Some(section_index(Node::Tutorial))
+/// The program (Tutorial or Store) `id` is a row inside of, at any depth.
+fn in_program(id: &IdArray) -> Option<Node> {
+    if id.depth() <= 2 {
+        return None;
+    }
+    let at = id.get(1)?;
+    PROGRAMS.into_iter().find(|&n| section_index(n) == at)
 }
 
-/// Inside the tutorial the superkey is the app: General mode and the app's
-/// whole keymap, because those are the keys the tutorial teaches (Insert mode
-/// on its inputs among them). Everywhere else it is a launcher, in simple
-/// search. Run every frame, after the keys, so however the tutorial was
-/// entered (Super+T, Enter or Right on its row) or left (Left at its top), the
-/// next frame is drawn and announced in the right mode.
-fn follow_tutorial_mode(r: &mut AppRenderer) {
-    let inside = in_tutorial(&r.current_id);
-    if inside && r.launcher_mode {
-        r.launcher_mode = false;
-        if r.coordinate == Coordinate::SimpleSearch {
-            // Escape out of search, the app's own way into General: it
-            // rebuilds the list on the row search started from and says so.
-            r.previous_coordinate = Coordinate::General;
-            handlers::handle_escape(r);
-        }
-    } else if !inside && !r.launcher_mode {
-        r.launcher_mode = true;
-        // Home twice goes to the app's root, the list of providers, which in a
-        // launcher is above anything its user can do: land on the Tutorial
-        // row instead.
-        if r.current_id.depth() < 2 {
-            let mut at = IdArray::new();
-            at.push(0);
-            at.push(section_index(Node::Tutorial));
-            r.current_id = at;
-            sicompass_ui::provider::set_provider_path(r, "/");
-            sicompass_ui::provider::refresh_current_directory(r);
-            r.coordinate = Coordinate::General;
-        }
-        if r.coordinate.is_general() {
-            // Tab, as `open_in_search` does it: search, announced.
-            handlers::handle_tab(r);
-        }
+/// Super+S is the Store, and pressed again within the double-tap window it is
+/// Settings, which has no key of its own. `now` is in [`handlers::sdl_ticks`]
+/// milliseconds, and `last` the Store press a second one would pair with: a
+/// pair is used up, so a third press is a first one again, the way Ctrl+A
+/// twice is in the app.
+pub fn cycled(section: Section, now: u64, last: &mut Option<u64>) -> Section {
+    if section != Section::Store {
+        return section;
+    }
+    if last
+        .take()
+        .is_some_and(|t| now.saturating_sub(t) <= handlers::DELTA_MS)
+    {
+        Section::Settings
+    } else {
+        *last = Some(now);
+        Section::Store
     }
 }
 
@@ -136,6 +125,10 @@ pub struct SuperkeyHooks {
     /// Standalone (no compositor): Escape quits instead of hiding.
     standalone: bool,
     quit: AtomicBool,
+    /// When Super+S last asked for the Store, unpaired ([`cycled`]).
+    last_store_show: Mutex<Option<u64>>,
+    /// The program the cursor was last inside, where Home twice lands.
+    last_program: Mutex<Node>,
 }
 
 impl HostHooks for SuperkeyHooks {
@@ -207,6 +200,8 @@ impl SuperkeyHooks {
             font_scale: Mutex::new(font_scale),
             standalone,
             quit: AtomicBool::new(false),
+            last_store_show: Mutex::new(None),
+            last_program: Mutex::new(Node::Tutorial),
         }
     }
 
@@ -256,15 +251,57 @@ impl SuperkeyHooks {
             self.shared().error = Some(t_with("superkey-status-failed", &[("error", &e)]));
         }
         self.tick_clock();
-        follow_tutorial_mode(r);
+        self.follow_program_mode(r);
         self.remember_tutorial(r);
+    }
+
+    /// Inside a program (the tutorial, the Store) the superkey is the app:
+    /// General mode and the app's whole keymap, because those are the keys the
+    /// tutorial teaches, and the Store's tier pages have inputs to edit in
+    /// Insert mode. Everywhere else it is a launcher, in simple search. Run
+    /// every frame, after the keys, so however a program was entered (Super+T,
+    /// Super+S, Enter or Right on its row) or left (Left at its top), the next
+    /// frame is drawn and announced in the right mode.
+    fn follow_program_mode(&self, r: &mut AppRenderer) {
+        let program = in_program(&r.current_id);
+        if let Some(p) = program {
+            *self.last_program.lock().unwrap_or_else(|e| e.into_inner()) = p;
+        }
+        if program.is_some() && r.launcher_mode {
+            r.launcher_mode = false;
+            if r.coordinate == Coordinate::SimpleSearch {
+                // Escape out of search, the app's own way into General: it
+                // rebuilds the list on the row search started from and says so.
+                r.previous_coordinate = Coordinate::General;
+                handlers::handle_escape(r);
+            }
+        } else if program.is_none() && !r.launcher_mode {
+            r.launcher_mode = true;
+            // Home twice goes to the app's root, the list of providers, which in
+            // a launcher is above anything its user can do: land on the row of
+            // the program it was in instead.
+            if r.current_id.depth() < 2 {
+                let last = *self.last_program.lock().unwrap_or_else(|e| e.into_inner());
+                let mut at = IdArray::new();
+                at.push(0);
+                at.push(section_index(last));
+                r.current_id = at;
+                sicompass_ui::provider::set_provider_path(r, "/");
+                sicompass_ui::provider::refresh_current_directory(r);
+                r.coordinate = Coordinate::General;
+            }
+            if r.coordinate.is_general() {
+                // Tab, as `open_in_search` does it: search, announced.
+                handlers::handle_tab(r);
+            }
+        }
     }
 
     /// Copy the tutorial, as the user has it, from the renderer into
     /// [`Shared::tutorial`]. Every frame inside it, after the keys and before
     /// the providers tick, so no edit is ever missing from a rebuild.
     fn remember_tutorial(&self, r: &AppRenderer) {
-        if !in_tutorial(&r.current_id) {
+        if in_program(&r.current_id) != Some(Node::Tutorial) {
             return;
         }
         let at = section_index(Node::Tutorial);
@@ -307,6 +344,14 @@ impl SuperkeyHooks {
     fn on_message(&self, r: &mut AppRenderer, msg: ToSuperkey) {
         match msg {
             ToSuperkey::Show { section, windows } => {
+                let section = cycled(
+                    section,
+                    handlers::sdl_ticks(),
+                    &mut self
+                        .last_store_show
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()),
+                );
                 let id = landing(section, &windows);
                 self.shared().windows = windows;
                 {
@@ -316,9 +361,9 @@ impl SuperkeyHooks {
                     }
                 }
                 r.suspended = false;
-                // A launcher again, whatever it was when it was hidden (the
-                // tutorial turns that off): `follow_tutorial_mode` turns it
-                // off again if this lands inside the tutorial.
+                // A launcher again, whatever it was when it was hidden (a
+                // program turns that off): `follow_program_mode` turns it off
+                // again if this lands inside one.
                 r.launcher_mode = true;
                 open_in_search(r, &id);
             }
@@ -522,15 +567,15 @@ fn relocalize(r: &mut AppRenderer) {
     }
 }
 
-/// Where a language change reopens. Inside the tutorial, at the Tutorial row:
-/// the embedded provider knows its levels only by their labels, which are in
-/// the old language. sicompass collapses its tutorial the same way.
+/// Where a language change reopens. Inside a program (the tutorial, the
+/// Store), at its row: the embedded provider knows its levels only by their
+/// labels, which are in the old language. sicompass collapses its tutorial the
+/// same way.
 fn relocalized_id(id: &IdArray) -> IdArray {
-    let tutorial = section_index(Node::Tutorial);
-    if id.depth() > 2 && id.get(1) == Some(tutorial) {
+    if let Some(program) = in_program(id) {
         let mut at = IdArray::new();
         at.push(0);
-        at.push(tutorial);
+        at.push(section_index(program));
         return at;
     }
     id.clone()
@@ -554,6 +599,7 @@ pub fn build(
     ipc: Option<Ipc>,
     power: power::Commands,
     bar: BarLink,
+    store: StoreProvider,
     standalone: bool,
 ) -> (SuperkeyProvider, SuperkeyHooks, AccessibilitySettings) {
     crate::i18n::init();
@@ -570,7 +616,7 @@ pub fn build(
         status: bar.status.get().clone(),
         ..Shared::default()
     }));
-    let provider = SuperkeyProvider::new(Arc::clone(&shared));
+    let provider = SuperkeyProvider::with_store(Arc::clone(&shared), store);
     let hooks = SuperkeyHooks::new(shared, ipc, access, catalogue, power, bar, standalone);
     (provider, hooks, settings)
 }
@@ -595,6 +641,7 @@ pub fn run(opts: Options) -> Result<(), String> {
         opts.ipc,
         opts.power,
         BarLink::session(),
+        StoreProvider::new(),
         opts.standalone,
     );
     let font_scale = hooks.read_font_scale();
@@ -663,8 +710,51 @@ mod tests {
         assert_eq!(parts(&landing(Section::Windows, &[])), [0, 1, 0]);
         assert_eq!(parts(&landing(Section::Status, &two)), [0, 2, 0]);
         assert_eq!(parts(&landing(Section::Tutorial, &two)), [0, 3, 0]);
-        assert_eq!(parts(&landing(Section::Settings, &two)), [0, 4, 0]);
-        assert_eq!(parts(&landing(Section::Controls, &two)), [0, 5, 0]);
+        assert_eq!(parts(&landing(Section::Store, &two)), [0, 4, 0]);
+        assert_eq!(parts(&landing(Section::Settings, &two)), [0, 5, 0]);
+        assert_eq!(parts(&landing(Section::Controls, &two)), [0, 6, 0]);
+    }
+
+    #[test]
+    fn super_s_is_the_store_and_twice_quickly_the_settings() {
+        let mut last = None;
+        let t = 1_000_000;
+        assert_eq!(cycled(Section::Store, t, &mut last), Section::Store);
+        assert_eq!(
+            cycled(Section::Store, t + handlers::DELTA_MS, &mut last),
+            Section::Settings,
+            "a second press within the window"
+        );
+        // The pair is used up: a third press is the Store again.
+        assert_eq!(
+            cycled(Section::Store, t + handlers::DELTA_MS + 10, &mut last),
+            Section::Store
+        );
+        // Too slow for a pair: the Store again, which a quick next one pairs.
+        let later = t + 10 * handlers::DELTA_MS;
+        assert_eq!(cycled(Section::Store, later, &mut last), Section::Store);
+        assert_eq!(
+            cycled(Section::Store, later + 1, &mut last),
+            Section::Settings
+        );
+        // Other sections pass through and leave the pairing alone.
+        assert_eq!(cycled(Section::Store, t, &mut last), Section::Store);
+        assert_eq!(cycled(Section::Windows, t + 1, &mut last), Section::Windows);
+        assert_eq!(
+            cycled(Section::Settings, t + 2, &mut last),
+            Section::Settings
+        );
+        assert_eq!(cycled(Section::Store, t + 3, &mut last), Section::Settings);
+    }
+
+    #[test]
+    fn a_language_change_inside_the_store_reopens_at_its_row() {
+        let store = section_index(Node::Store);
+        let mut deep = IdArray::new();
+        for p in [0, store, 1, 0] {
+            deep.push(p);
+        }
+        assert_eq!(parts(&relocalized_id(&deep)), [0, store]);
     }
 
     #[test]

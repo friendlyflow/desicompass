@@ -7,7 +7,9 @@
 //!   + Tray                one button per tray item: Enter activates it
 //! + Tutorial [t]          the sicompass tutorial, which the app leaves out in
 //!                         a session
-//! + Settings [s]
+//! + Store [s]             the sicompass Store, which the app leaves out in a
+//!                         session too
+//! + Settings [s]          Super+S twice in quick succession
 //!   +R color scheme       dark, light
 //!   +R language           the four languages, each named in itself
 //!   + Accessibility       screen reader, font scale, shoulder-surfing protection
@@ -27,8 +29,13 @@
 //!
 //! `fetch` is path-scoped: the whole tree at the root, and one level inside a
 //! section. The path is kept as [`Node`]s, not labels, so it survives a
-//! language change. Below Tutorial, the levels are the embedded
-//! [`TutorialProvider`]'s, which keeps its own path.
+//! language change. Below Tutorial and Store (the [`PROGRAMS`]), the levels
+//! are the embedded [`TutorialProvider`]'s and [`StoreProvider`]'s, which keep
+//! their own paths.
+//!
+//! The Store installs into the plugins folder and records the user's approval
+//! in sicompass's `settings.json` itself; sicompass follows both and starts
+//! the plugin. So nothing here tells sicompass anything.
 
 use std::sync::{Arc, Mutex};
 
@@ -40,6 +47,7 @@ use desicompass_superkey_protocol::WindowInfo;
 use sicompass_sdk::ffon::FfonElement;
 use sicompass_sdk::provider::Provider;
 use sicompass_sdk::tags;
+use sicompass_store::StoreProvider;
 use sicompass_tutorial::TutorialProvider;
 use sicompass_ui::accessibility::{
     AccessibilitySettings, COLOR_SCHEMES, FONT_SCALES, KEY_COLOR_SCHEME, KEY_FONT_SCALE,
@@ -108,20 +116,28 @@ pub enum Node {
     Choice(&'static str),
     /// The sicompass tutorial, which the app leaves out in a session.
     Tutorial,
-    /// A level inside the tutorial. Which one is the embedded provider's path.
-    TutorialPage,
+    /// The sicompass Store, which the app leaves out in a session too.
+    Store,
+    /// A level inside one of the [`PROGRAMS`], the one at the top of the path.
+    /// Which level is that embedded provider's path.
+    Page,
 }
 
 /// The sections, in the order the root lists them. The index is what the host
 /// lands the cursor on.
-pub const SECTIONS: [Node; 6] = [
+pub const SECTIONS: [Node; 7] = [
     Node::Notifications,
     Node::Windows,
     Node::Status,
     Node::Tutorial,
+    Node::Store,
     Node::Settings,
     Node::Controls,
 ];
+
+/// The sections that are sicompass programs, embedded whole: below them every
+/// level is theirs.
+pub const PROGRAMS: [Node; 2] = [Node::Tutorial, Node::Store];
 
 /// The groups inside Settings, in order, after [`SETTINGS_CHOICES`].
 pub const GROUPS: [Node; 2] = [Node::Accessibility, Node::Bar];
@@ -156,19 +172,30 @@ pub struct SuperkeyProvider {
     /// whole rather than read back from a path string, because a label may
     /// hold a `/` ("Insert/edit").
     tutorial_path: Vec<String>,
+    /// Below Store, every level is this provider's.
+    store: StoreProvider,
 }
 
 impl SuperkeyProvider {
     pub fn new(shared: SharedState) -> Self {
+        Self::with_store(shared, StoreProvider::new())
+    }
+
+    /// With the Store given, pointed somewhere else (tests).
+    pub fn with_store(shared: SharedState, store: StoreProvider) -> Self {
         // Its strings, and the two files it shows (`asset:tutorial/…`).
         sicompass_tutorial::register_translations();
         sicompass_tutorial::register();
+        // The Store's strings. Not its `register()`: the license checker and
+        // the factory it installs are the app's, for the app's plugins.
+        sicompass_store::register_translations();
         Self {
             shared,
             path: Vec::new(),
             path_str: "/".to_owned(),
             tutorial: TutorialProvider::new(),
             tutorial_path: Vec::new(),
+            store,
         }
     }
 
@@ -204,12 +231,23 @@ impl SuperkeyProvider {
         rows
     }
 
+    /// The program the level shown is in: its section, or a level inside it.
+    fn program(&self) -> Option<Node> {
+        self.path
+            .first()
+            .copied()
+            .flatten()
+            .filter(|n| PROGRAMS.contains(n))
+    }
+
     /// Whether the level shown is the Tutorial section or one inside it.
     fn in_tutorial(&self) -> bool {
-        matches!(
-            self.path.last(),
-            Some(Some(Node::Tutorial | Node::TutorialPage))
-        )
+        self.program() == Some(Node::Tutorial)
+    }
+
+    /// Whether the level shown is the Store section or one inside it.
+    fn in_store(&self) -> bool {
+        self.program() == Some(Node::Store)
     }
 
     fn shared(&self) -> std::sync::MutexGuard<'_, Shared> {
@@ -223,10 +261,11 @@ impl SuperkeyProvider {
             let segs: Vec<String> = self
                 .path
                 .iter()
-                .filter(|n| **n != Some(Node::TutorialPage))
+                .filter(|n| **n != Some(Node::Page))
                 .map(|n| match n {
                     Some(Node::Tutorial) => "tutorial".to_owned(),
-                    Some(Node::TutorialPage) => unreachable!("filtered out"),
+                    Some(Node::Store) => "store".to_owned(),
+                    Some(Node::Page) => unreachable!("filtered out"),
                     Some(Node::Windows) => "windows".to_owned(),
                     Some(Node::Controls) => "controls".to_owned(),
                     Some(Node::Settings) => "settings".to_owned(),
@@ -239,7 +278,11 @@ impl SuperkeyProvider {
                     None => "?".to_owned(),
                 })
                 .collect();
-            let below = self.tutorial.current_path().trim_start_matches('/');
+            let below = match self.program() {
+                Some(Node::Store) => self.store.current_path(),
+                _ => self.tutorial.current_path(),
+            }
+            .trim_start_matches('/');
             if below.is_empty() {
                 format!("/{}", segs.join("/"))
             } else {
@@ -250,11 +293,12 @@ impl SuperkeyProvider {
 
     // ---- Rows --------------------------------------------------------------
 
-    fn root(&self) -> Vec<FfonElement> {
-        let mut out: Vec<FfonElement> = SECTIONS
-            .iter()
-            .map(|&n| section(&self.label(n), self.rows(n)))
-            .collect();
+    fn root(&mut self) -> Vec<FfonElement> {
+        let mut out = Vec::new();
+        for n in SECTIONS {
+            let rows = self.rows(n);
+            out.push(section(&self.label(n), rows));
+        }
         out.extend(
             self.shared()
                 .apps
@@ -264,19 +308,19 @@ impl SuperkeyProvider {
         out
     }
 
-    fn rows(&self, node: Node) -> Vec<FfonElement> {
+    fn rows(&mut self, node: Node) -> Vec<FfonElement> {
         match node {
             Node::Windows => self.window_rows(),
             Node::Controls => control_rows(),
-            Node::Settings => SETTINGS_CHOICES
-                .iter()
-                .map(|&k| self.radio(k))
-                .chain(
-                    GROUPS
-                        .iter()
-                        .map(|&g| section(&self.label(g), self.rows(g))),
-                )
-                .collect(),
+            Node::Settings => {
+                let mut out: Vec<FfonElement> =
+                    SETTINGS_CHOICES.iter().map(|&k| self.radio(k)).collect();
+                for g in GROUPS {
+                    let rows = self.rows(g);
+                    out.push(section(&self.label(g), rows));
+                }
+                out
+            }
             Node::Accessibility => self.settings_rows(),
             Node::Bar => self.bar_rows(),
             Node::Status => self.status_rows(),
@@ -286,8 +330,12 @@ impl SuperkeyProvider {
             // At its root: `rows` is the nested tree the root fetch hands
             // out, whatever level the live provider is at.
             Node::Tutorial => self.tutorial_rows(),
+            // The Store's root, from the live one, which is at its root
+            // whenever this is asked (at the superkey's root, and in Store).
+            Node::Store if self.store.current_path() == "/" => self.store.fetch(),
+            Node::Store => Vec::new(),
             // Only reached through `fetch`, which asks the live one.
-            Node::TutorialPage => Vec::new(),
+            Node::Page => Vec::new(),
         }
     }
 
@@ -575,6 +623,8 @@ pub fn shortcut(node: Node) -> Option<char> {
         Node::Status => Some('b'),
         Node::Notifications => Some('n'),
         Node::Tutorial => Some('t'),
+        // Twice in quick succession it is Settings (`gui::cycled`).
+        Node::Store => Some('s'),
         _ => None,
     }
 }
@@ -618,6 +668,7 @@ pub fn section_label(node: Node) -> String {
             Node::Bar => "superkey-group-bar",
             Node::Tray => "superkey-status-tray",
             Node::Tutorial => "superkey-section-tutorial",
+            Node::Store => "superkey-section-store",
             _ => "superkey-section-settings",
         }),
     }
@@ -687,34 +738,45 @@ impl Provider for SuperkeyProvider {
     fn fetch(&mut self) -> Vec<FfonElement> {
         match self.path.last() {
             None => self.root(),
-            Some(Some(Node::TutorialPage)) => self.tutorial_level(),
+            Some(Some(Node::Page)) if self.in_store() => self.store.fetch(),
+            Some(Some(Node::Page)) => self.tutorial_level(),
             Some(Some(node)) => self.rows(*node),
             Some(None) => Vec::new(),
         }
     }
 
     fn push_path(&mut self, segment: &str) {
-        if self.in_tutorial() {
-            self.tutorial.push_path(segment);
-            self.tutorial_path.push(segment.to_owned());
-            self.path.push(Some(Node::TutorialPage));
-        } else {
-            let node = self.node_for(segment);
-            self.path.push(node);
+        match self.program() {
+            Some(Node::Tutorial) => {
+                self.tutorial.push_path(segment);
+                self.tutorial_path.push(segment.to_owned());
+                self.path.push(Some(Node::Page));
+            }
+            Some(_) => {
+                self.store.push_path(segment);
+                self.path.push(Some(Node::Page));
+            }
+            None => {
+                let node = self.node_for(segment);
+                self.path.push(node);
+            }
         }
         self.update_path_str();
     }
 
     fn pop_path(&mut self) {
-        match self.path.pop() {
-            Some(Some(Node::TutorialPage)) => {
+        let program = self.program();
+        match (self.path.pop(), program) {
+            (Some(Some(Node::Page)), Some(Node::Store)) => self.store.pop_path(),
+            (Some(Some(Node::Page)), _) => {
                 self.tutorial.pop_path();
                 self.tutorial_path.pop();
             }
-            Some(Some(Node::Tutorial)) => {
+            (Some(Some(Node::Tutorial)), _) => {
                 self.tutorial.set_current_path("/");
                 self.tutorial_path.clear();
             }
+            (Some(Some(Node::Store)), _) => self.store.set_current_path("/"),
             _ => {}
         }
         self.update_path_str();
@@ -727,8 +789,15 @@ impl Provider for SuperkeyProvider {
             self.path.clear();
             self.tutorial.set_current_path("/");
             self.tutorial_path.clear();
+            self.store.set_current_path("/");
             self.update_path_str();
         }
+    }
+
+    /// Never: from the root, scroll mode would open the Store's programs and
+    /// start downloading the store list.
+    fn allows_scroll_prefetch(&self) -> bool {
+        false
     }
 
     fn current_path(&self) -> &str {
@@ -740,6 +809,10 @@ impl Provider for SuperkeyProvider {
     fn on_checkbox_change(&mut self, label: &str, checked: bool) {
         // The tutorial's practice boxes are not settings.
         if self.in_tutorial() {
+            return;
+        }
+        if self.in_store() {
+            self.store.on_checkbox_change(label, checked);
             return;
         }
         let label = tags::strip_display(label);
@@ -755,6 +828,10 @@ impl Provider for SuperkeyProvider {
     /// group's label and `value` the option's, as shown.
     fn on_radio_change(&mut self, group: &str, value: &str) {
         if self.in_tutorial() {
+            return;
+        }
+        if self.in_store() {
+            self.store.on_radio_change(group, value);
             return;
         }
         let group = tags::strip_display(group);
@@ -779,30 +856,63 @@ impl Provider for SuperkeyProvider {
             self.tutorial.on_button_press(function_name);
             return;
         }
+        // Install, update, uninstall, the tier pages' buttons.
+        if self.in_store() {
+            self.store.on_button_press(function_name);
+            return;
+        }
         match parse(function_name) {
             Some(action) => self.shared().actions.push(action),
             None => tracing::debug!("not a superkey action: {function_name}"),
         }
     }
 
-    fn tick(&mut self) -> bool {
-        // Nothing the host changes is shown inside the tutorial, and a rebuild
-        // there would land in the middle of an edit. The change waits for the
-        // first tick outside it. Only the tutorial itself may ask, and it asks
-        // only in its programs section, after a plugin is installed or removed.
-        if self.in_tutorial() {
-            return self.tutorial.tick();
+    /// Only the tier pages have inputs.
+    fn commit_edit(&mut self, old: &str, new: &str) -> bool {
+        self.in_store() && self.store.commit_edit(old, new)
+    }
+
+    fn needs_refresh(&self) -> bool {
+        self.in_store() && self.store.needs_refresh()
+    }
+
+    fn clear_needs_refresh(&mut self) {
+        if self.in_store() {
+            self.store.clear_needs_refresh();
         }
-        std::mem::take(&mut self.shared().dirty)
+    }
+
+    fn tick(&mut self) -> bool {
+        // The Store's downloads finish on its own thread, and are picked up
+        // here wherever the user is (even hidden), so an install completes
+        // and is recorded however the superkey was left.
+        let store = self.store.tick();
+        // Nothing the host changes is shown inside a program, and a rebuild
+        // there would land in the middle of an edit. The change waits for the
+        // first tick outside it. Only the program itself may ask: the tutorial
+        // only in its programs section, after a plugin is installed or removed.
+        match self.program() {
+            Some(Node::Tutorial) => self.tutorial.tick(),
+            Some(_) => store,
+            None => std::mem::take(&mut self.shared().dirty),
+        }
     }
 
     fn take_announcement(&mut self) -> Option<String> {
-        self.shared().announcement.take()
+        // What the Store says ("demo 1.0 is installed") only where it is shown.
+        let store = self.store.take_announcement();
+        let own = self.shared().announcement.take();
+        if self.in_store() { store.or(own) } else { own }
     }
 
     fn take_error(&mut self) -> Option<String> {
         let error = self.shared().error.take();
-        error.or_else(|| self.tutorial.take_error())
+        let tutorial = self.tutorial.take_error();
+        let store = self.store.take_error();
+        error.or(match self.program() {
+            Some(Node::Store) => store,
+            _ => tutorial,
+        })
     }
 }
 
@@ -827,7 +937,26 @@ mod tests {
             settings: AccessibilitySettings::builtin(),
             ..Shared::default()
         }));
-        (SuperkeyProvider::new(Arc::clone(&shared)), shared)
+        (
+            SuperkeyProvider::with_store(Arc::clone(&shared), offline_store()),
+            shared,
+        )
+    }
+
+    /// A Store with nowhere to download from and nothing installed: never
+    /// the developer's plugins folder or settings.json.
+    fn offline_store() -> StoreProvider {
+        let dir = std::env::temp_dir().join(format!("superkey-store-{}", std::process::id()));
+        StoreProvider::new()
+            .with_sources(
+                Arc::new(|_: &str| Err("offline".to_owned())),
+                "http://store.invalid/",
+                "http://releases.invalid",
+                &[],
+                dir.join("plugins"),
+            )
+            .with_settings_path(dir.join("settings.json"))
+            .with_data_dir(dir.join("data"))
     }
 
     fn texts(v: &[FfonElement]) -> Vec<String> {
@@ -849,6 +978,7 @@ mod tests {
                 "+Windows [w]",
                 "+Status [b]",
                 "+Tutorial [t]",
+                "+Store [s]",
                 "+Settings [s]",
                 "+Controls [c]",
                 "<button>app:foot</button>Foot"
@@ -907,7 +1037,61 @@ mod tests {
         assert_eq!(texts(&p.fetch()), tutorial_at(&[]));
         p.pop_path();
         assert_eq!(p.current_path(), "/");
-        assert_eq!(p.fetch().len(), 7);
+        assert_eq!(p.fetch().len(), 8);
+    }
+
+    #[test]
+    fn the_store_section_is_the_stores_root() {
+        let (mut p, _) = provider();
+        let root = p.fetch();
+        let nested = root[4].as_obj().unwrap();
+        assert_eq!(nested.key, "Store [s]");
+        assert_eq!(texts(&nested.children), ["+programs", "+tiers"]);
+    }
+
+    #[test]
+    fn inside_the_store_the_levels_are_the_stores() {
+        let (mut p, shared) = provider();
+        p.push_path("Store [s]");
+        assert_eq!(p.current_path(), "/store");
+        assert_eq!(texts(&p.fetch()), ["+programs", "+tiers"]);
+
+        p.push_path("programs");
+        assert_eq!(p.current_path(), "/store/programs");
+        // Offline, nothing to list but why (the first answer is "loading").
+        p.fetch();
+        while p.store.is_working() {
+            p.tick();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!p.fetch().is_empty());
+        // Its buttons are the Store's: nothing is queued for the host.
+        p.on_button_press("refresh");
+        assert!(shared.lock().unwrap().actions.is_empty());
+        assert!(p.store.is_working(), "the press went to the Store");
+
+        p.pop_path();
+        p.pop_path();
+        assert_eq!(p.current_path(), "/");
+        assert_eq!(p.fetch().len(), 8);
+    }
+
+    #[test]
+    fn the_store_is_ticked_wherever_the_user_is() {
+        // An install finishes on the Store's thread; it is picked up, and
+        // recorded, even with the user elsewhere.
+        let (mut p, _) = provider();
+        p.push_path("Store [s]");
+        p.push_path("programs");
+        p.fetch();
+        assert!(p.store.is_working());
+        p.set_current_path("/");
+        let start = std::time::Instant::now();
+        while p.store.is_working() {
+            p.tick();
+            assert!(start.elapsed() < std::time::Duration::from_secs(10));
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
     }
 
     #[test]
@@ -944,7 +1128,7 @@ mod tests {
         std::fs::create_dir_all(plugin.join("locales")).unwrap();
         std::fs::write(
             plugin.join("plugin.json"),
-            r#"{"name":"skfake","displayName":"fake","entry":"plugin.wasm"}"#,
+            r#"{"name":"skfake","displayName":"fake","type":"process","entry":"plugin"}"#,
         )
         .unwrap();
         std::fs::write(
@@ -1103,6 +1287,7 @@ mod tests {
             "Windows",
             "Status",
             "Tutorial",
+            "Store",
             "Settings",
             "Controls",
         ]
@@ -1130,7 +1315,7 @@ mod tests {
         p.push_path("Elsewhere");
         assert!(p.fetch().is_empty());
         p.set_current_path("/");
-        assert_eq!(p.fetch().len(), 7);
+        assert_eq!(p.fetch().len(), 8);
     }
 
     #[test]

@@ -2,16 +2,17 @@
 
 `desicompass-superkey` (`lib/lib_superkey`) is the list a bare Super tap opens:
 the notifications, the open windows, the status the bar shows, the Sicompass
-tutorial, the settings (accessibility, then the bar), the controls (suspend,
-restart, shut down, log out), then every installed program. It is a
-sicompass-ui client, like the login screen, and it never links the Sicompass
-application. It links one provider crate, `sicompass-tutorial`, for the
-Tutorial section: in a session the app leaves the tutorial out
-(`programs::SESSION_OWNED_PROGRAMS`), and the superkey shows it instead.
-Inside that section the superkey is not a launcher: `gui::follow_tutorial_mode`
-turns `launcher_mode` off and leaves search for General mode, so the app's
-keymap (Insert mode on the tutorial's inputs among it) works there, and turns
-both back on when the cursor leaves the section. `launcher_window` stays on
+tutorial, the Sicompass Store, the settings (accessibility, then the bar), the
+controls (suspend, restart, shut down, log out), then every installed program.
+It is a sicompass-ui client, like the login screen, and it never links the
+Sicompass application. It links two provider crates, `sicompass-tutorial` and
+`sicompass-store`, for the Tutorial and Store sections (`provider::PROGRAMS`):
+in a session the app leaves both out (`programs::SESSION_OWNED_PROGRAMS`), and
+the superkey shows them instead. Inside those sections the superkey is not a
+launcher: `gui::follow_program_mode` turns `launcher_mode` off and leaves
+search for General mode, so the app's keymap (Insert mode on the tutorial's
+inputs and the Store's tier pages among it) works there, and turns both back
+on when the cursor leaves the section. `launcher_window` stays on
 throughout: Escape in General closes the superkey there too, and the keys only
 the app has (tabs, undo and redo, the timeline) do nothing.
 
@@ -36,7 +37,7 @@ user-facing side is in the README.
 | | Compositor (`src/superkey.rs`) | Superkey (`lib/lib_superkey`) |
 |---|---|---|
 | Starting | Finds it (`superkey::resolve_command`), runs it once, restarts it with a back-off, gives up after 5 starts in 60 s | Says `hello` |
-| Keys | Detects the bare Super tap (`keybindings::SuperTap`), binds Super+W/C/S/B/N/T | Everything typed while it has the keyboard |
+| Keys | Detects the bare Super tap (`keybindings::SuperTap`), binds Super+W/C/S/B/N/T | Everything typed while it has the keyboard. Turns the second of two quick Super+S into Settings (`gui::cycled`) |
 | Placing | Keeps its toplevel out of the tiler, the window list and the focus stack. Gives it the whole output, full screen, on top | Nothing: it is told its size |
 | Showing | Sends `show`, moves the keyboard to it, maps it on its next frame | Opens the section in simple search, draws again |
 | Hiding | Unmaps it, sends `hidden`, gives the keyboard back | Stops drawing (`AppRenderer::suspended`) |
@@ -78,7 +79,7 @@ The compositor makes two socketpairs before it starts the superkey:
 
 ```text
 compositor -> superkey
-  {"type":"show","section":"root|notifications|windows|status|tutorial|settings|controls","windows":[{"id":3,"title":"foot","app_id":"foot","focused":true}]}
+  {"type":"show","section":"root|notifications|windows|status|tutorial|store|settings|controls","windows":[{"id":3,"title":"foot","app_id":"foot","focused":true}]}
   {"type":"windows","windows":[...]}     the list changed while it is shown
   {"type":"hidden"}                      sent on every hide
 superkey -> compositor
@@ -112,9 +113,35 @@ the first frame after a show would never come. The show itself maps the window
 on that first frame, or after 250 ms, whichever is first, so the previous
 showing's list does not flash up.
 
+## The Store it shows
+
+The Store section (Super+S) is sicompass's own Store (`sicompass-store`),
+embedded whole: its programs list, its install, update and uninstall buttons,
+and its tier pages. Its downloads run on the Store's own thread and are picked
+up in the superkey's `tick` wherever the cursor is, hidden or not, so an
+install always completes.
+
+Nothing tells sicompass about an install. The Store writes the plugin into the
+plugins folder and records the user's approval in sicompass's `settings.json`
+itself (`sicompass_store::approvals`), and moves an uninstalled plugin's data
+folder to the trash itself. sicompass follows the plugins folder and the
+approvals (`programs::follow_plugins_folder`, about once a second) and loads,
+reloads or unloads the plugin in every tab. With sicompass not running, its
+next start reads them.
+
+The Store checks a plugin's `minAppVersion` and plugin protocol against the
+sicompass it was built from, not the one running, so `sicompass-tutorial` and
+`sicompass-store` are pinned to the same sicompass commit as the flake's
+`sicompass` input. Move all three together.
+
+Super+S always asks for the Store. Pressed again within the double-tap window
+(sicompass-ui's `handlers::DELTA_MS`, 400 ms, the window Ctrl+A twice uses in
+the app), the superkey turns the second one into Settings (`gui::cycled`),
+which has no key of its own. A third press is a first one again.
+
 ## The settings it shows
 
-The Settings section (Super+S) is a radio group each for the colour scheme and
+The Settings section (Super+S twice) is a radio group each for the colour scheme and
 the language, then two groups, Accessibility and Bar. The colour scheme and the
 language are not accessibility, but they live in the same shared object below,
 and the login screen shows them too.
@@ -172,6 +199,9 @@ cargo run -p desicompass-superkey -- --standalone     # on its own, Escape quits
 
 The host desktop may take the Super tap for itself. Super+W, Super+C and
 Super+S still reach a nested desicompass.
+
+Standalone, the Store section is the user's real Store: what it installs lands
+in the user's plugins folder, as from the app.
 
 A nested run can be too slow for a Vulkan client. Seen on COSMIC with the
 nested window off screen: desicompass answered its clients every two to three

@@ -48,6 +48,7 @@ superkey-bar-top = en haut
 
 superkey-section-status = État
 superkey-section-tutorial = Tutoriel
+superkey-section-store = Store
 superkey-status-notifications = Notifications ({ $count })
 superkey-status-tray = Zone de notification
 superkey-no-notifications = Aucune notification

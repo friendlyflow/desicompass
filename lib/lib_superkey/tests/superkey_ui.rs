@@ -26,6 +26,7 @@ use desicompass_superkey_protocol::{
     FromSuperkey, LineDecoder, Section, ToSuperkey, WindowInfo, encode,
 };
 use sdl3::keyboard::{Keycode, Mod};
+use sicompass_store::StoreProvider;
 use sicompass_ui::accessibility::{AccessibilitySettings, POLL_INTERVAL, SharedAccessibility};
 use sicompass_ui::app_state::{AppRenderer, Coordinate, PaletteTheme};
 use sicompass_ui::registry::{HostHooks, register_provider};
@@ -62,6 +63,22 @@ fn shared_in(dir: &Path) -> SharedAccessibility {
     )
 }
 
+/// A Store kept in `dir`, offline: never the developer's plugins folder, their
+/// settings.json or their trash, and never the network.
+fn store_in(dir: &Path) -> StoreProvider {
+    sicompass_store::_set_test_no_trash(true);
+    StoreProvider::new()
+        .with_sources(
+            Arc::new(|_: &str| Err("offline".to_owned())),
+            "http://store.invalid/",
+            "http://releases.invalid",
+            &[],
+            dir.join("plugins"),
+        )
+        .with_settings_path(dir.join("config/sicompass/settings.json"))
+        .with_data_dir(dir.join("data"))
+}
+
 fn harness() -> Harness {
     let dir = tempfile::tempdir().unwrap();
     write(
@@ -92,6 +109,7 @@ fn harness() -> Harness {
         Some(ipc),
         power::Commands::default(),
         bar,
+        store_in(dir.path()),
         false,
     );
     let mut r = AppRenderer::new();
@@ -199,6 +217,7 @@ fn it_starts_hidden_and_a_show_opens_the_root_in_search() {
             "+ Windows [w]",
             "+ Status [b]",
             "+ Tutorial [t]",
+            "+ Store [s]",
             "+ Settings [s]",
             "+ Controls [c]",
             "-b Firefox",
@@ -290,6 +309,62 @@ fn the_tutorials_inputs_are_edited_in_insert_mode() {
     assert_eq!(h.r.coordinate, Coordinate::Insert);
     h.key(Keycode::Escape);
     assert_eq!(h.r.coordinate, Coordinate::General);
+}
+
+/// The Store's tier pages have inputs, edited in Insert mode, so inside it the
+/// superkey is the app too.
+fn assert_store_in_general(h: &Harness) {
+    assert_eq!(h.r.coordinate, Coordinate::General);
+    assert!(!h.r.launcher_mode, "the app's keymap, not the launcher's");
+    assert_eq!(h.rows(), ["+ programs", "+ tiers"]);
+}
+
+#[test]
+fn super_s_lands_on_the_store_in_general_mode() {
+    let mut h = harness();
+    h.show(Section::Store, windows());
+    h.frame();
+    assert_store_in_general(&h);
+}
+
+#[test]
+fn super_s_twice_quickly_lands_on_settings() {
+    let mut h = harness();
+    h.show(Section::Store, windows());
+    h.frame();
+    // The compositor asks for the Store again; the superkey pairs the two.
+    h.send(&ToSuperkey::Show {
+        section: Section::Store,
+        windows: windows(),
+    });
+    h.frames_until(|r| r.launcher_mode);
+    h.frame();
+    assert_eq!(h.r.coordinate, Coordinate::SimpleSearch);
+    let rows = h.rows();
+    assert!(
+        rows.iter().any(|r| r.contains("Accessibility")),
+        "not the settings: {rows:?}"
+    );
+
+    // Once Super+S is slower than a double tap, it is the Store again.
+    std::thread::sleep(Duration::from_millis(sicompass_ui::handlers::DELTA_MS + 50));
+    h.show(Section::Store, windows());
+    h.frame();
+    assert_store_in_general(&h);
+}
+
+#[test]
+fn left_out_of_the_store_is_the_launcher_again() {
+    let mut h = harness();
+    h.show(Section::Store, windows());
+    h.frame();
+    h.key(Keycode::Left);
+    assert_eq!(h.r.coordinate, Coordinate::SimpleSearch);
+    assert!(h.r.launcher_mode);
+    assert_eq!(
+        h.r.current_list_item().map(|i| i.label.clone()).as_deref(),
+        Some("+ Store [s]")
+    );
 }
 
 #[test]

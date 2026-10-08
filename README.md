@@ -30,7 +30,7 @@ non-US layouts the right Alt is AltGr, which you need to type characters like
 | `Super`, tapped on its own | Open the superkey (Escape closes it) |
 | `Super+W` | Open the superkey on the open windows |
 | `Super+C` | Open the superkey on the controls (suspend, restart, shut down, log out) |
-| `Super+S` | Open the superkey on the settings (accessibility, then the bar) |
+| `Super+S` | Open the superkey on the Store. Twice quickly, on the settings (accessibility, then the bar) |
 | `Super+B` | Open the superkey on the status the bar shows |
 | `Super+N` | Open the superkey on the notifications |
 | `Super+T` | Open the superkey on the tutorial |
@@ -58,7 +58,12 @@ Super held after its name (`Status [b]`):
   General mode, because those are the keys it teaches. Tabs, undo and the
   timeline are the exceptions, since the superkey keeps nothing. Left at its
   top goes back to the list and to searching, and Escape closes the superkey.
-- **Settings**: the colour scheme and the language, then two groups.
+- **Store**: the Sicompass Store, where programs are installed, updated and
+  removed. In a desicompass session it is here rather than in Sicompass, which
+  starts what you install within a second. Inside it the superkey works like
+  Sicompass too.
+- **Settings**: the colour scheme and the language, then two groups. Press
+  `Super+S` twice quickly to open them.
   **Accessibility** holds the screen reader, the font scale and
   shoulder-surfing protection. **Bar** holds where the bar sits, whether its
   clock shows seconds and whether it shows the keys you press.
@@ -82,7 +87,7 @@ talk is in [docs/superkey.md](docs/superkey.md). To try it on its own, run
 ## The bar
 
 The bar is a strip along the bottom of the screen, or the top if you choose so
-in Settings > Bar (`Super+S`). It is 1.7 lines tall, with its line in the middle, and drawn in the colours of
+in Settings > Bar (`Super+S` twice). It is 1.7 lines tall, with its line in the middle, and drawn in the colours of
 the list's focused row. The windows are tiled in the rest of the screen.
 
 The date and time sit at the right, with seconds if you turn them on. To their

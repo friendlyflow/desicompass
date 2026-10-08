@@ -121,6 +121,9 @@
               clippy
               rustfmt
               pkg-config
+              # aws-lc-sys, the TLS stack under reqwest, which the superkey's
+              # Store downloads plugins with, drives a CMake build.
+              cmake
 
               wayland
               wayland-scanner
@@ -300,7 +303,9 @@
                 # tests/superkey_ui.rs drives the real renderer; run it in the
                 # dev shell.
                 doCheck = false;
-                nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
+                # cmake: aws-lc-sys, the TLS stack under reqwest, which the
+                # Store section (sicompass-store) downloads plugins with.
+                nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook cmake ];
                 buildInputs = with pkgs; [
                   sdl3
                   freetype

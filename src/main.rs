@@ -25,7 +25,8 @@
 //! | `Super+Shift+Q` | close the focused window |
 //! | `Super+Shift+E` | end the session (press twice, on separate presses) |
 //! | `Super` (tapped alone) | open the superkey (Escape closes it) |
-//! | `Super+W` / `Super+C` / `Super+S` | open the superkey on windows / controls / settings |
+//! | `Super+W` / `Super+C` | open the superkey on windows / controls |
+//! | `Super+S` | open the superkey on the Store; twice quickly, on the settings |
 //! | `Super+B` / `Super+N` | open the superkey on the status / the notifications |
 //! | `Super+T` | open the superkey on the tutorial |
 //! | `Super+D` | say the time and the date |

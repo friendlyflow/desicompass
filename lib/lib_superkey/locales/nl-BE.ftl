@@ -48,6 +48,7 @@ superkey-bar-top = bovenaan
 
 superkey-section-status = Status
 superkey-section-tutorial = Handleiding
+superkey-section-store = Store
 superkey-status-notifications = Meldingen ({ $count })
 superkey-status-tray = Systeemvak
 superkey-no-notifications = Geen meldingen
