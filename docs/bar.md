@@ -20,8 +20,8 @@ the README.
 | | Compositor (`src/bar.rs`) | Bar (`lib/lib_bar`) | Superkey (`lib/lib_superkey`) |
 |---|---|---|---|
 | Starting | Finds it (`bar::resolve_command`), runs it, restarts it with a back-off (`managed_client.rs`, shared with the superkey) | Says `hello`, then `place` | |
-| Placing | Gives it its edge of the output and the height it asked for. Tiles, maximised and full-screen windows get what is left (`usable_area`). Keeps it out of the tiler, the window list and the focus stack | Works out 1.7 lines of its font, tells the compositor again when the font scale or the position changes | |
-| Keys | Super+D sends `say-time`. Super+B and Super+N open the superkey on Status and Notifications | Runs `spd-say` | Shows Status, Notifications |
+| Placing | Gives it its edge of the output and the height it asked for. Tiles, maximised and full-screen windows get what is left (`usable_area`). Keeps it out of the tiler, the window list and the focus stack | Works out 1.7 lines of its font (2.7 with key strokes), tells the compositor again when the font scale, the position or the key strokes setting changes | |
+| Keys | Super+D sends `say-time`. Super+B and Super+N open the superkey on Status and Notifications. Sends every key press as `key`, only after the bar asked with `show-keys` | Runs `spd-say`. Shows the keys being pressed | Shows Status, Notifications |
 | Settings | Nothing | Follows `bar.json` | Writes `bar.json` (Settings > Bar) |
 | Status | Nothing | Follows the services, writes `status-<display>.json` | Lists it (Status) |
 | Notifications | Nothing | Is `org.freedesktop.Notifications` | Lists them, Enter calls `CloseNotification` |
@@ -46,13 +46,15 @@ its `ClientId`, and a second one for the protocol, its fd number in
 ```text
 compositor -> bar
   {"type":"say-time"}
+  {"type":"key","label":"Ctrl+C"}
 bar -> compositor
-  {"type":"hello","version":1}
+  {"type":"hello","version":2}
   {"type":"place","edge":"bottom","height":56}
+  {"type":"show-keys","on":true}
 ```
 
-`height` is in the compositor's logical pixels: 1.7 of the bar's lines, divided
-by the window's pixel density. The compositor clamps it to between one pixel and
+`height` is in the compositor's logical pixels: 1.7 of the bar's lines (2.7
+with key strokes shown), divided by the window's pixel density. The compositor clamps it to between one pixel and
 half the output. Until the bar's window exists it takes no room, so a bar that
 fails to start costs the windows nothing.
 
@@ -86,12 +88,39 @@ clock's text, a status, the settings, the colour scheme or the size.
 The bar has no AccessKit tree. It never has the keyboard, so there is nothing
 in it for a screen reader to follow: the superkey's Status section says it all.
 
+## Key strokes
+
+With `barKeystrokes` on (Settings > Bar > show key strokes), the bar shows the
+keys being pressed, like Showmethekey.
+
+- Only the compositor sees every key, so it names each press
+  (`src/keystrokes.rs`) and sends it as `key`. It sends nothing until the bar
+  says `show-keys` with `on: true`, and forgets that when the bar exits, so a
+  key never leaves the compositor unless the user asked for it. The compositor
+  reads no settings file for this: the bar follows `bar.json` and tells it.
+- The names: what a key types, as the layout and Shift made it (`a`, `A`, `é`,
+  `␣` for space). A key that types nothing visible by name (`Enter`, `Esc`,
+  `Backspace`, arrows, `F5`). A key held with Ctrl, Alt or Super as a chord
+  named by its key cap (`Ctrl+Shift+T`, `Super+J`). A modifier alone shows
+  nothing. Keys are taken before any binding or the screen reader can take
+  them, so the compositor's own chords show too.
+- The bar (`keys.rs`) counts a key pressed again in a row (`a×3`) and forgets
+  them all 2.5 s after the last one. They take the left half, one em in, at
+  twice the text's size, newest at the right, the oldest dropped first when
+  they do not fit. The status items stop one em past the middle.
+- The bar is then a line taller (2.7 lines): the double line, with the same
+  margin above and below as the 1.7-line bar has. It stays that tall while the
+  setting is on, so the windows do not move as typing starts and stops.
+- What arrives on the channel does not wake SDL's event queue, so while the
+  setting is on the loop wakes every 30 ms rather than every 250 ms.
+- Shoulder-surfing protection blanks the bar, and the keys with it.
+
 ## The settings
 
 `$XDG_CONFIG_HOME/desicompass/bar.json`, per user:
 
 ```json
-{ "barPosition": "bottom", "barSeconds": false }
+{ "barPosition": "bottom", "barSeconds": false, "barKeystrokes": false }
 ```
 
 The superkey writes it (Settings > Bar) through `BarSettingsFile`, atomically,

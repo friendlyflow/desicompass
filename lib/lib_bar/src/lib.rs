@@ -16,6 +16,7 @@
 pub mod gui;
 pub mod icons;
 pub mod ipc;
+pub mod keys;
 pub mod layout;
 pub mod model;
 pub mod speech;

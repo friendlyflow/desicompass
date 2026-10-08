@@ -436,7 +436,14 @@ fn the_bar_settings_are_in_settings_and_a_choice_is_saved_for_the_bar() {
     h.show(Section::Settings, windows());
     h.type_text("bar");
     h.key(Keycode::Return);
-    assert_eq!(h.rows(), ["+R bar position [bottom]", "-c show seconds"]);
+    assert_eq!(
+        h.rows(),
+        [
+            "+R bar position [bottom]",
+            "-c show seconds",
+            "-c show key strokes"
+        ]
+    );
     h.key(Keycode::Return);
     assert_eq!(h.rows(), ["-rc bottom", "-r top"]);
     h.type_text("top");
@@ -458,6 +465,24 @@ fn seconds_are_switched_on_for_the_bar() {
     assert!(saved.seconds);
     assert!(
         h.rows().iter().any(|r| r == "-cc show seconds"),
+        "{:?}",
+        h.rows()
+    );
+}
+
+#[test]
+fn key_strokes_are_switched_on_for_the_bar() {
+    let mut h = harness();
+    h.show(Section::Settings, windows());
+    h.type_text("bar");
+    h.key(Keycode::Return);
+    h.type_text("key strokes");
+    h.key(Keycode::Return);
+    let saved = BarSettingsFile::open(Some(bar_settings_path(h.dir.path()))).get();
+    assert!(saved.keystrokes);
+    assert!(!saved.seconds);
+    assert!(
+        h.rows().iter().any(|r| r == "-cc show key strokes"),
         "{:?}",
         h.rows()
     );
@@ -678,7 +703,11 @@ fn super_t_after_hiding_inside_the_tutorial_is_general_mode_again() {
     let mut h = harness();
     h.getting_started();
     h.key(Keycode::Tab);
-    assert_eq!(h.r.coordinate, Coordinate::SimpleSearch, "the app's own search");
+    assert_eq!(
+        h.r.coordinate,
+        Coordinate::SimpleSearch,
+        "the app's own search"
+    );
     h.show(Section::Tutorial, windows());
     h.frame();
     assert_tutorial_in_general(&h);

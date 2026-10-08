@@ -10,6 +10,15 @@
 //! height square, and maybe an amount right after it. The line is centred in
 //! the bar, which is 1.7 lines tall. What does not fit on the left is left
 //! out, the farthest first.
+//!
+//! With "show key strokes" on, the bar is 2.7 lines tall: the keys being
+//! pressed take its left half, one em in, in one line of twice the text's
+//! size, with the same margin above and below as the normal line has. The
+//! status items then stop at the middle.
+//!
+//! ```text
+//! |  a b×3 Ctrl+C Enter          |       net  vol 45%  Wed 30 Sep 14:05  |
+//! ```
 
 /// The measures the layout needs, in pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -40,6 +49,16 @@ impl Metrics {
     pub fn icon_top(&self) -> f32 {
         ((self.height - self.icon_size()) / 2.0).round()
     }
+
+    /// The top of the keys' line, which is twice as tall, centred in the bar.
+    pub fn keys_line_top(&self) -> f32 {
+        ((self.height - 2.0 * self.line_height) / 2.0).round()
+    }
+
+    /// Where the keys go: from one em in to the middle, as `(x, width)`.
+    pub fn keys_area(&self) -> (f32, f32) {
+        (self.em, (self.width / 2.0 - self.em).max(0.0).round())
+    }
 }
 
 /// One status item, as far as the layout cares: an icon, and the width of the
@@ -67,7 +86,14 @@ pub struct Layout {
 }
 
 /// Lay out a clock `clock_width` wide and `items`, nearest the clock first.
-pub fn layout(m: &Metrics, clock_width: f32, items: &[ItemSize]) -> Layout {
+/// With `keys`, the left half is the keys' and the items stop one em past
+/// the middle.
+pub fn layout(m: &Metrics, clock_width: f32, items: &[ItemSize], keys: bool) -> Layout {
+    let left_limit = if keys {
+        (m.width / 2.0).round() + m.em
+    } else {
+        m.em
+    };
     let icon = m.icon_size();
     let gap = (m.em / 3.0).round();
     let spacing = (m.em * 0.8).round();
@@ -81,7 +107,7 @@ pub fn layout(m: &Metrics, clock_width: f32, items: &[ItemSize]) -> Layout {
             0.0
         };
         let left = (right - icon - text).round();
-        if left < m.em {
+        if left < left_limit {
             break;
         }
         placed.push(Placed {
@@ -124,7 +150,7 @@ mod tests {
 
     #[test]
     fn the_clock_hangs_one_em_from_the_right_edge() {
-        let l = layout(&metrics(1000.0), 200.0, &[]);
+        let l = layout(&metrics(1000.0), 200.0, &[], false);
         assert_eq!(l.clock_x, 1000.0 - 15.0 - 200.0);
         assert!(l.items.is_empty());
     }
@@ -136,6 +162,7 @@ mod tests {
             &m,
             200.0,
             &[ItemSize { text_width: 30.0 }, ItemSize { text_width: 0.0 }],
+            false,
         );
         let first = l.items[0];
         let second = l.items[1];
@@ -152,7 +179,7 @@ mod tests {
     fn what_does_not_fit_is_left_out_farthest_first() {
         let m = metrics(300.0);
         let items = vec![ItemSize { text_width: 0.0 }; 20];
-        let l = layout(&m, 150.0, &items);
+        let l = layout(&m, 150.0, &items, false);
         assert!(!l.items.is_empty());
         assert!(l.items.len() < 20);
         assert!(l.items.iter().all(|p| p.icon_x >= m.em));
@@ -160,8 +187,50 @@ mod tests {
 
     #[test]
     fn a_narrow_bar_still_shows_the_clock() {
-        let l = layout(&metrics(100.0), 400.0, &[ItemSize { text_width: 0.0 }]);
+        let l = layout(
+            &metrics(100.0),
+            400.0,
+            &[ItemSize { text_width: 0.0 }],
+            false,
+        );
         assert_eq!(l.clock_x, 0.0);
         assert!(l.items.is_empty());
+    }
+
+    #[test]
+    fn the_keys_line_is_twice_as_tall_with_the_same_margins() {
+        // 2.7 lines of 36, rounded up as the bar asks for it.
+        let m = Metrics {
+            height: 98.0,
+            ..metrics(1000.0)
+        };
+        let normal = metrics(1000.0);
+        assert_eq!(m.keys_line_top(), 13.0);
+        assert_eq!(m.keys_line_top(), normal.line_top());
+        assert_eq!(m.keys_line_top() * 2.0 + 2.0 * m.line_height, m.height);
+        // The clock and the icons stay centred.
+        assert_eq!(m.line_top() * 2.0 + m.line_height, m.height);
+    }
+
+    #[test]
+    fn the_keys_take_the_left_half_one_em_in() {
+        let m = metrics(1000.0);
+        assert_eq!(m.keys_area(), (15.0, 485.0));
+        let (x, w) = m.keys_area();
+        assert_eq!(x + w, 500.0);
+        assert_eq!(metrics(20.0).keys_area(), (15.0, 0.0));
+    }
+
+    #[test]
+    fn with_the_keys_shown_the_items_stop_at_the_middle() {
+        let m = metrics(1000.0);
+        let items = vec![ItemSize { text_width: 0.0 }; 20];
+        let all = layout(&m, 150.0, &items, false);
+        let half = layout(&m, 150.0, &items, true);
+        assert!(half.items.len() < all.items.len());
+        assert!(half.items.iter().all(|p| p.icon_x >= 500.0 + m.em));
+        // The nearest are the same ones, in the same places.
+        assert_eq!(half.items[..], all.items[..half.items.len()]);
+        assert_eq!(half.clock_x, all.clock_x);
     }
 }

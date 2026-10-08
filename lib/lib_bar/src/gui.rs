@@ -9,10 +9,15 @@
 //!
 //! The colours are the focused row's: its highlight as the background and the
 //! text colour on it, so the bar reads as the list's current line.
+//!
+//! With "show key strokes" on, the bar asks the compositor for every key
+//! pressed (`show-keys`) and shows them in its left half, twice the text's
+//! size ([`crate::keys`]). It is a line taller then, and wakes more often, so
+//! a key shows as it is pressed.
 
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use desicompass_bar_protocol::clock::{LocalTime, bar_text};
 use desicompass_bar_protocol::settings::BarSettingsFile;
@@ -27,6 +32,7 @@ use sicompass_ui::text::{FONT_SIZE_PT, FontRenderer, TEXT_PADDING};
 
 use crate::icons::IconCache;
 use crate::ipc::Ipc;
+use crate::keys::Keys;
 use crate::layout::{ItemSize, Metrics, layout};
 use crate::model::{Glyph, Model, Update, items};
 
@@ -34,8 +40,16 @@ use crate::model::{Glyph, Model, Update, items};
 /// else.
 const TICK: Duration = Duration::from_millis(250);
 
+/// The same, while key strokes are shown: a key must show as it is pressed,
+/// and what arrives on the channel does not wake the event queue.
+const KEYS_TICK: Duration = Duration::from_millis(30);
+
 /// How many lines of text tall the bar is. Its one line sits in the middle.
 pub const LINES: f32 = 1.7;
+
+/// How many lines tall the keys' line is, with "show key strokes" on. The bar
+/// grows by the difference, so the margins above and below stay the same.
+pub const KEYS_LINES: f32 = 2.0;
 
 /// What the bar needs from the command line.
 pub struct Options {
@@ -50,15 +64,21 @@ fn rgba_f32(c: u32) -> [f32; 4] {
     [r, g, b, a].map(|v| f32::from(v) / 255.0)
 }
 
-/// The bar's height in logical pixels, for `place`: [`LINES`] lines, in the
-/// compositor's units rather than the display's pixels.
-pub fn logical_height(line_height_px: f32, pixel_density: f32) -> u32 {
+/// The bar's height in logical pixels, for `place`: [`LINES`] lines, or a
+/// [`KEYS_LINES`] line in place of the one with `keys`, in the compositor's
+/// units rather than the display's pixels.
+pub fn logical_height(line_height_px: f32, pixel_density: f32, keys: bool) -> u32 {
     let density = if pixel_density.is_finite() && pixel_density > 0.0 {
         pixel_density
     } else {
         1.0
     };
-    (LINES * line_height_px / density).ceil().max(1.0) as u32
+    let lines = if keys {
+        LINES + KEYS_LINES - 1.0
+    } else {
+        LINES
+    };
+    (lines * line_height_px / density).ceil().max(1.0) as u32
 }
 
 struct Bar {
@@ -76,6 +96,10 @@ struct Bar {
     placed: Option<(Edge, u32)>,
     /// The clock as last drawn.
     clock: String,
+    /// The keys being pressed, with "show key strokes" on.
+    keys: Keys,
+    /// What was last sent in `show-keys`.
+    asked_for_keys: Option<bool>,
     dirty: bool,
     standalone: bool,
 }
@@ -125,6 +149,8 @@ pub fn run(opts: Options) -> Result<(), String> {
         language: effective.language.clone().unwrap_or_else(|| "en-US".into()),
         placed: None,
         clock: String::new(),
+        keys: Keys::default(),
+        asked_for_keys: None,
         dirty: true,
         standalone: opts.standalone,
     };
@@ -145,7 +171,12 @@ impl Bar {
                 tracing::info!("the compositor is gone; the bar ends");
                 break;
             }
-            let first = self.app.event_pump.wait_event_timeout(TICK);
+            let tick = if self.settings.get().keystrokes {
+                KEYS_TICK
+            } else {
+                TICK
+            };
+            let first = self.app.event_pump.wait_event_timeout(tick);
             let events: Vec<Event> = first
                 .into_iter()
                 .chain(self.app.event_pump.poll_iter())
@@ -187,12 +218,21 @@ impl Bar {
 
     /// Everything but the events, once per wake-up.
     fn frame(&mut self) {
-        if let Some(ipc) = &self.ipc {
-            for msg in ipc.drain() {
-                match msg {
-                    ToBar::SayTime => crate::speech::say_time(&self.language),
+        let now = Instant::now();
+        let msgs = self.ipc.as_ref().map(Ipc::drain).unwrap_or_default();
+        for msg in msgs {
+            match msg {
+                ToBar::SayTime => crate::speech::say_time(&self.language),
+                ToBar::Key { label } => {
+                    if self.settings.get().keystrokes {
+                        self.keys.push(label, now);
+                        self.dirty = true;
+                    }
                 }
             }
+        }
+        if self.keys.expire(now) {
+            self.dirty = true;
         }
 
         let mut status_changed = false;
@@ -227,6 +267,7 @@ impl Bar {
         if self.settings.poll() {
             self.dirty = true;
         }
+        self.ask_for_keys();
         self.place();
 
         let clock = bar_text(
@@ -294,6 +335,21 @@ impl Bar {
         }
     }
 
+    /// Tell the compositor whether to send the keys being pressed, at start
+    /// and when the setting changed.
+    fn ask_for_keys(&mut self) {
+        let on = self.settings.get().keystrokes;
+        if self.asked_for_keys == Some(on) {
+            return;
+        }
+        self.asked_for_keys = Some(on);
+        self.keys.clear();
+        self.dirty = true;
+        if let Some(ipc) = &self.ipc {
+            ipc.send(&FromBar::ShowKeys { on });
+        }
+    }
+
     /// The height of a line of text, in the display's pixels.
     fn line_height(&self) -> Option<f32> {
         let fr = self.app.font_renderer.as_ref()?;
@@ -307,8 +363,9 @@ impl Bar {
         let Some(lh) = self.line_height() else {
             return;
         };
-        let height = logical_height(lh, self.app.window.pixel_density());
-        let edge = self.settings.get().position;
+        let settings = self.settings.get();
+        let height = logical_height(lh, self.app.window.pixel_density(), settings.keystrokes);
+        let edge = settings.position;
         if self.placed == Some((edge, height)) {
             return;
         }
@@ -345,6 +402,7 @@ impl Bar {
         });
 
         let shown = items(&self.model);
+        let keys = self.settings.get().keystrokes;
         let Some(fr) = self.app.font_renderer.as_mut() else {
             return;
         };
@@ -368,10 +426,21 @@ impl Bar {
             })
             .collect();
         let clock_width = fr.measure_text_width(&self.clock, scale);
-        let placed = layout(&m, clock_width, &sizes);
+        let placed = layout(&m, clock_width, &sizes, keys);
 
         fr.begin_text_rendering();
         fr.prepare_text_for_rendering(&self.clock, placed.clock_x, baseline, scale, fg);
+        if keys && !self.app.renderer.privacy_blank {
+            let big = scale * KEYS_LINES;
+            let (x, max_width) = m.keys_area();
+            let text = self
+                .keys
+                .visible(max_width, |s| fr.measure_text_width(s, big));
+            if !text.is_empty() {
+                let baseline = m.keys_line_top() + fr.ascender * big + KEYS_LINES * TEXT_PADDING;
+                fr.prepare_text_for_rendering(&text, x, baseline, big, fg);
+            }
+        }
         let mut pictures = Vec::new();
         for (item, at) in shown.iter().zip(&placed.items) {
             if let (Some(t), Some(x)) = (&item.text, at.text_x) {
@@ -422,14 +491,26 @@ mod tests {
     #[test]
     fn the_height_is_1_7_lines_in_the_compositors_pixels() {
         // Rounded up, so the line always fits.
-        assert_eq!(logical_height(40.0, 1.0), 68);
-        assert_eq!(logical_height(36.0, 1.0), 62);
+        assert_eq!(logical_height(40.0, 1.0, false), 68);
+        assert_eq!(logical_height(36.0, 1.0, false), 62);
         // A 2x display: 80 pixels of line are 40 logical.
-        assert_eq!(logical_height(80.0, 2.0), 68);
+        assert_eq!(logical_height(80.0, 2.0, false), 68);
         // A nonsense density counts as 1.
-        assert_eq!(logical_height(20.0, 0.0), 34);
-        assert_eq!(logical_height(20.0, f32::NAN), 34);
-        assert_eq!(logical_height(0.0, 1.0), 1);
+        assert_eq!(logical_height(20.0, 0.0, false), 34);
+        assert_eq!(logical_height(20.0, f32::NAN, false), 34);
+        assert_eq!(logical_height(0.0, 1.0, false), 1);
+    }
+
+    #[test]
+    fn with_the_keys_shown_it_is_2_7_lines() {
+        // The double line, with the 1.7-line bar's margins above and below.
+        assert_eq!(logical_height(40.0, 1.0, true), 108);
+        assert_eq!(logical_height(36.0, 1.0, true), 98);
+        assert_eq!(logical_height(80.0, 2.0, true), 108);
+        assert_eq!(
+            logical_height(40.0, 1.0, true) - logical_height(40.0, 1.0, false),
+            40
+        );
     }
 
     #[test]

@@ -13,9 +13,11 @@
 //! ```text
 //! compositor -> bar
 //!   {"type":"say-time"}
+//!   {"type":"key","label":"Ctrl+C"}
 //! bar -> compositor
-//!   {"type":"hello","version":1}
+//!   {"type":"hello","version":2}
 //!   {"type":"place","edge":"bottom","height":56}
+//!   {"type":"show-keys","on":true}
 //! ```
 //!
 //! Neither side trusts a line: one that is too long, is not JSON, or names a
@@ -31,7 +33,7 @@ pub mod status;
 pub use desicompass_superkey_protocol::{LineDecoder, MAX_LINE, encode};
 
 /// The protocol version, sent in [`FromBar::Hello`].
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// The environment variable holding the bar's end of this channel, as a file
 /// descriptor number.
@@ -70,6 +72,9 @@ impl Edge {
 pub enum ToBar {
     /// Super+D: say the time and the date out loud.
     SayTime,
+    /// A key was pressed, as the bar shows it: `a`, `Enter`, `Ctrl+C`. Sent
+    /// only while the bar has asked for them with [`FromBar::ShowKeys`].
+    Key { label: String },
 }
 
 /// What the bar tells the compositor.
@@ -82,6 +87,10 @@ pub enum FromBar {
     /// at start and again whenever the position or the font scale changes.
     /// The windows are tiled in what is left of the output.
     Place { edge: Edge, height: u32 },
+    /// Whether the bar shows the keys being pressed, so whether the
+    /// compositor sends them ([`ToBar::Key`]). Sent at start and whenever the
+    /// setting changes. Until it says so, no key leaves the compositor.
+    ShowKeys { on: bool },
 }
 
 #[cfg(test)]
@@ -97,7 +106,17 @@ mod tests {
         assert_eq!(line(&ToBar::SayTime), "{\"type\":\"say-time\"}\n");
         assert_eq!(
             line(&FromBar::Hello { version: VERSION }),
-            "{\"type\":\"hello\",\"version\":1}\n"
+            "{\"type\":\"hello\",\"version\":2}\n"
+        );
+        assert_eq!(
+            line(&FromBar::ShowKeys { on: true }),
+            "{\"type\":\"show-keys\",\"on\":true}\n"
+        );
+        assert_eq!(
+            line(&ToBar::Key {
+                label: "Ctrl+C".into()
+            }),
+            "{\"type\":\"key\",\"label\":\"Ctrl+C\"}\n"
         );
         assert_eq!(
             line(&FromBar::Place {
@@ -120,12 +139,21 @@ mod tests {
                 edge: Edge::Bottom,
                 height: 40,
             },
+            FromBar::ShowKeys { on: true },
+            FromBar::ShowKeys { on: false },
         ] {
             let back: Vec<FromBar> = LineDecoder::new().feed(&encode(&m));
             assert_eq!(back, vec![m]);
         }
-        let back: Vec<ToBar> = LineDecoder::new().feed(&encode(&ToBar::SayTime));
-        assert_eq!(back, vec![ToBar::SayTime]);
+        for m in [
+            ToBar::SayTime,
+            ToBar::Key {
+                label: "\u{2423}".into(),
+            },
+        ] {
+            let back: Vec<ToBar> = LineDecoder::new().feed(&encode(&m));
+            assert_eq!(back, vec![m]);
+        }
     }
 
     #[test]

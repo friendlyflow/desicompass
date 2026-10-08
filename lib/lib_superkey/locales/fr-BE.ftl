@@ -42,6 +42,7 @@ superkey-group-accessibility = Accessibilité
 superkey-group-bar = Barre
 superkey-setting-bar-position = position de la barre
 superkey-setting-bar-seconds = afficher les secondes
+superkey-setting-bar-keystrokes = afficher les frappes
 superkey-bar-bottom = en bas
 superkey-bar-top = en haut
 

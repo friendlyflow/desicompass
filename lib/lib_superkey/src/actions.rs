@@ -98,6 +98,7 @@ pub fn is_switch(key: &str) -> bool {
     key == accessibility::KEY_SCREEN_READER
         || key == accessibility::KEY_SHOULDER_SURFING
         || key == bar::KEY_SECONDS
+        || key == bar::KEY_KEYSTROKES
 }
 
 #[cfg(test)]
@@ -122,6 +123,7 @@ mod tests {
             Action::Set(KEY_COLOR_SCHEME, "light".into()),
             Action::Set(KEY_LANGUAGE, "nl-BE".into()),
             Action::Toggle(bar::KEY_SECONDS),
+            Action::Toggle(bar::KEY_KEYSTROKES),
             Action::Set(bar::KEY_POSITION, "top".into()),
             Action::Dismiss(7),
             Action::DismissAll,

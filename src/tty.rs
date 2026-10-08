@@ -432,6 +432,9 @@ fn handle_input(state: &mut State, event: InputEvent<LibinputInputBackend>) {
                 // "something besides Super was pressed". It never takes the
                 // key: Super's press and release still reach the client.
                 crate::state::observe_super_tap(app_state, &keysym, modifiers, pressed);
+                // The bar's "show key strokes": every press, before anything
+                // can take it.
+                crate::state::observe_keystroke(app_state, &keysym, modifiers, pressed);
 
                 // The screen reader first, as in cosmic-comp: it hears every
                 // key (a key press is what makes Orca stop talking), and keeps

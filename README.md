@@ -60,8 +60,8 @@ Super held after its name (`Status [b]`):
   top goes back to the list and to searching, and Escape closes the superkey.
 - **Settings**: the colour scheme and the language, then two groups.
   **Accessibility** holds the screen reader, the font scale and
-  shoulder-surfing protection. **Bar** holds where the bar sits and whether its
-  clock shows seconds.
+  shoulder-surfing protection. **Bar** holds where the bar sits, whether its
+  clock shows seconds and whether it shows the keys you press.
 - **Controls**: suspend, restart, shut down and log out.
 - every installed program, by name.
 
@@ -93,6 +93,15 @@ Bluetooth that is off or a network that is not connected, a crossed speaker when
 muted, an exclamation mark on a network that does not reach the internet. A
 battery, Bluetooth adapter or network service that the machine does not have
 shows no icon at all.
+
+With **show key strokes** checked in Settings > Bar, the bar shows the keys
+you press, like Showmethekey: letters as they are typed, other keys by name
+(`Enter`, `Esc`, arrows) and chords as `Ctrl+C` or `Super+J`, a key pressed
+again in a row counted as `a×3`. They take the left half of the bar at twice
+the text size, and fade two and a half seconds after the last one. The bar is
+2.7 lines tall then, and the status icons keep to its right half. Everything
+you type shows, passwords included, so turn it off before typing one in front
+of others. Shoulder-surfing protection blanks the bar and hides them too.
 
 `Super+D` says the time and the date out loud through speech-dispatcher, whether or not a
 screen reader is running. What the icons show is also in the superkey's Status

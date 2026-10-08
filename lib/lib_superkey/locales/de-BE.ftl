@@ -42,6 +42,7 @@ superkey-group-accessibility = Barrierefreiheit
 superkey-group-bar = Leiste
 superkey-setting-bar-position = Position der Leiste
 superkey-setting-bar-seconds = Sekunden anzeigen
+superkey-setting-bar-keystrokes = Tastenanschläge anzeigen
 superkey-bar-bottom = unten
 superkey-bar-top = oben
 

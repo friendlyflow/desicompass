@@ -8,9 +8,9 @@
 //! ([`usable_area`]).
 //!
 //! It tells the compositor where it wants to be and how tall it is
-//! (`place`), and the compositor tells it to say the time and the date
-//! (Super+D). See
-//! `docs/bar.md`.
+//! (`place`), and whether it shows the keys being pressed (`show-keys`). The
+//! compositor tells it to say the time and the date (Super+D), and, only while
+//! it asked for them, each key pressed (`key`). See `docs/bar.md`.
 
 use std::ops::{Deref, DerefMut};
 use std::time::Instant;
@@ -49,6 +49,9 @@ pub struct Bar {
     window: Option<Window>,
     edge: Edge,
     height: i32,
+    /// Whether it asked for the keys being pressed. Off until it says so, and
+    /// again when it goes, so no key leaves the compositor unasked.
+    show_keys: bool,
 }
 
 impl Deref for Bar {
@@ -71,6 +74,7 @@ impl Bar {
             window: None,
             edge: Edge::default(),
             height: DEFAULT_HEIGHT,
+            show_keys: false,
         }
     }
 
@@ -88,6 +92,18 @@ impl Bar {
             .as_ref()
             .and_then(|w| w.toplevel())
             .is_some_and(|t| t.wl_surface() == surface)
+    }
+
+    /// Whether it wants every key pressed ([`Bar::send_key`]).
+    pub fn wants_keys(&self) -> bool {
+        self.show_keys && self.ipc.is_some()
+    }
+
+    /// One key press, named by `keystrokes::label`. Nothing unless it asked.
+    pub fn send_key(&mut self, label: String) {
+        if self.wants_keys() {
+            self.send(&ToBar::Key { label });
+        }
     }
 
     /// The strip it takes from the output: only once it has a window.
@@ -163,6 +179,7 @@ impl State {
     /// whole output back, and schedule the next start.
     fn bar_gone(&mut self, now: Instant) {
         self.managed_gone(|s| &mut s.bar, now);
+        self.bar.show_keys = false;
         self.bar_window_destroyed();
     }
 
@@ -253,6 +270,12 @@ impl State {
                     self.relayout();
                 }
             }
+            FromBar::ShowKeys { on } => {
+                if on != self.bar.show_keys {
+                    info!("bar: key strokes {}", if on { "shown" } else { "hidden" });
+                    self.bar.show_keys = on;
+                }
+            }
         }
     }
 }
@@ -310,5 +333,35 @@ mod tests {
         let bar = Bar::new(Some("desicompass-bar".into()));
         assert_eq!(bar.strip(), None);
         assert!(Bar::new(None).next_start.is_none());
+    }
+
+    #[test]
+    fn keys_go_to_the_bar_only_once_it_asked_for_them() {
+        use desicompass_bar_protocol::LineDecoder;
+        use std::io::Read;
+        use std::os::unix::net::UnixStream;
+
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        theirs.set_nonblocking(true).unwrap();
+        let mut bar = Bar::new(None);
+        bar.ipc = Some(ours);
+        bar.send_key("a".into());
+        assert!(!bar.wants_keys());
+        bar.show_keys = true;
+        assert!(bar.wants_keys());
+        bar.send_key("Ctrl+C".into());
+
+        let mut buf = [0u8; 256];
+        let n = (&theirs).read(&mut buf).unwrap();
+        assert_eq!(
+            LineDecoder::new().feed::<ToBar>(&buf[..n]),
+            vec![ToBar::Key {
+                label: "Ctrl+C".into()
+            }]
+        );
+
+        // Asked, but with no channel: nowhere to send them.
+        bar.ipc = None;
+        assert!(!bar.wants_keys());
     }
 }

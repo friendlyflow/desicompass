@@ -41,6 +41,8 @@ mod gpu;
 #[cfg(target_os = "linux")]
 mod keybindings;
 #[cfg(target_os = "linux")]
+mod keystrokes;
+#[cfg(target_os = "linux")]
 mod layout;
 #[cfg(target_os = "linux")]
 mod managed_client;
@@ -356,6 +358,8 @@ mod linux {
                             // The Super tap watches everything, and takes
                             // nothing; see the TTY backend.
                             crate::state::observe_super_tap(app_state, &keysym, modifiers, pressed);
+                            // The bar's key strokes; see the TTY backend.
+                            crate::state::observe_keystroke(app_state, &keysym, modifiers, pressed);
                             // The screen reader first; see the TTY backend.
                             if app_state
                                 .a11y_keyboard

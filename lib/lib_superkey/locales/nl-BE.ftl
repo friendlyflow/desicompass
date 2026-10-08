@@ -42,6 +42,7 @@ superkey-group-accessibility = Toegankelijkheid
 superkey-group-bar = Balk
 superkey-setting-bar-position = positie van de balk
 superkey-setting-bar-seconds = seconden tonen
+superkey-setting-bar-keystrokes = toetsaanslagen tonen
 superkey-bar-bottom = onderaan
 superkey-bar-top = bovenaan
 

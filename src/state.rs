@@ -603,6 +603,40 @@ pub fn observe_super_tap(
     }
 }
 
+/// Send a key press to the bar, when it shows the keys being pressed. Called by
+/// both backends right after [`observe_super_tap`], before anything can
+/// intercept the key, so a chord the compositor or the screen reader takes is
+/// shown too. Never takes the key.
+pub fn observe_keystroke(
+    state: &mut State,
+    keysym: &smithay::input::keyboard::KeysymHandle<'_>,
+    modifiers: &smithay::input::keyboard::ModifiersState,
+    pressed: bool,
+) {
+    if !pressed || !state.bar.wants_keys() {
+        return;
+    }
+    let sym = keysym
+        .raw_latin_sym_or_raw_current_sym()
+        .unwrap_or_else(|| keysym.modified_sym());
+    let text = {
+        let xkb = keysym.xkb().lock().unwrap_or_else(|e| e.into_inner());
+        // SAFETY: only read, and not kept past this block; smithay's own lock
+        // is not held while the filter runs.
+        unsafe { xkb.state() }.key_get_utf32(keysym.raw_code())
+    };
+    let held = crate::keystrokes::Held {
+        ctrl: modifiers.ctrl,
+        alt: modifiers.alt,
+        logo: modifiers.logo,
+        shift: modifiers.shift,
+    };
+    let text = char::from_u32(text).filter(|c| *c != '\0');
+    if let Some(label) = crate::keystrokes::label(held, sym, text) {
+        state.bar.send_key(label);
+    }
+}
+
 /// Exchange the focused window with `other`, then re-tile.
 fn swap_focused_with(state: &mut State, other: Option<WindowId>) {
     let (Some(focused), Some(other)) = (state.focus.focused(), other) else {

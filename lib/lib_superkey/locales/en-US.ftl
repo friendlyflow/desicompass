@@ -50,6 +50,7 @@ superkey-group-accessibility = Accessibility
 superkey-group-bar = Bar
 superkey-setting-bar-position = bar position
 superkey-setting-bar-seconds = show seconds
+superkey-setting-bar-keystrokes = show key strokes
 superkey-bar-bottom = bottom
 superkey-bar-top = top
 

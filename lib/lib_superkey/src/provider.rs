@@ -11,7 +11,8 @@
 //!   +R color scheme       dark, light
 //!   +R language           the four languages, each named in itself
 //!   + Accessibility       screen reader, font scale, shoulder-surfing protection
-//!   + Bar                 where the bar sits, seconds on its clock
+//!   + Bar                 where the bar sits, seconds on its clock, the keys
+//!                         being pressed
 //! + Controls [c]          suspend, restart, shut down, log out
 //! -b Firefox              then every installed program, by name
 //! ```
@@ -136,7 +137,12 @@ const CHOICES: [&str; 1] = [KEY_FONT_SCALE];
 const BAR_CHOICES: [&str; 1] = [bar::KEY_POSITION];
 
 /// Every on/off setting: the accessibility ones, then the bar's.
-const SWITCHES: [&str; 3] = [KEY_SCREEN_READER, KEY_SHOULDER_SURFING, bar::KEY_SECONDS];
+const SWITCHES: [&str; 4] = [
+    KEY_SCREEN_READER,
+    KEY_SHOULDER_SURFING,
+    bar::KEY_SECONDS,
+    bar::KEY_KEYSTROKES,
+];
 
 pub struct SuperkeyProvider {
     shared: SharedState,
@@ -186,9 +192,7 @@ impl SuperkeyProvider {
         let mut rows = self.tutorial_rows();
         for segment in &self.tutorial_path {
             let found = rows.into_iter().find_map(|e| match e {
-                FfonElement::Obj(o) if tags::strip_display(&o.key) == *segment => {
-                    Some(o.children)
-                }
+                FfonElement::Obj(o) if tags::strip_display(&o.key) == *segment => Some(o.children),
                 _ => None,
             });
             match found {
@@ -326,11 +330,13 @@ impl SuperkeyProvider {
         out
     }
 
-    /// The bar's settings: where it sits, and seconds on the clock.
+    /// The bar's settings: where it sits, seconds on the clock, and the keys
+    /// being pressed.
     fn bar_rows(&self) -> Vec<FfonElement> {
-        let seconds = self.shared().bar.seconds;
+        let settings = self.shared().bar;
         let mut out: Vec<FfonElement> = BAR_CHOICES.iter().map(|&k| self.radio(k)).collect();
-        out.push(checkbox(seconds, bar::KEY_SECONDS));
+        out.push(checkbox(settings.seconds, bar::KEY_SECONDS));
+        out.push(checkbox(settings.keystrokes, bar::KEY_KEYSTROKES));
         out
     }
 
@@ -637,6 +643,7 @@ pub fn setting_label(key: &str) -> String {
         KEY_SHOULDER_SURFING => "superkey-setting-shoulder-surfing",
         bar::KEY_POSITION => "superkey-setting-bar-position",
         bar::KEY_SECONDS => "superkey-setting-bar-seconds",
+        bar::KEY_KEYSTROKES => "superkey-setting-bar-keystrokes",
         _ => return key.to_owned(),
     })
 }
@@ -647,11 +654,13 @@ pub fn value_label(key: &str, value: &str) -> String {
         KEY_COLOR_SCHEME => t(&format!("superkey-color-{value}")),
         KEY_LANGUAGE => t(&format!("superkey-language-{value}")),
         bar::KEY_POSITION => t(&format!("superkey-bar-{value}")),
-        KEY_SCREEN_READER | KEY_SHOULDER_SURFING | bar::KEY_SECONDS => t(if value == "true" {
-            "superkey-on"
-        } else {
-            "superkey-off"
-        }),
+        KEY_SCREEN_READER | KEY_SHOULDER_SURFING | bar::KEY_SECONDS | bar::KEY_KEYSTROKES => {
+            t(if value == "true" {
+                "superkey-on"
+            } else {
+                "superkey-off"
+            })
+        }
         _ => value.to_owned(),
     }
 }
@@ -872,7 +881,11 @@ mod tests {
     fn tutorial_section(starts: &str) -> String {
         tutorial_at(&[])
             .into_iter()
-            .find_map(|s| s.strip_prefix('+').filter(|l| l.starts_with(starts)).map(str::to_owned))
+            .find_map(|s| {
+                s.strip_prefix('+')
+                    .filter(|l| l.starts_with(starts))
+                    .map(str::to_owned)
+            })
             .unwrap_or_else(|| panic!("no tutorial section {starts}"))
     }
 
@@ -921,7 +934,11 @@ mod tests {
         });
         p.push_path("Tutorial");
         p.push_path(&tutorial_section("The programs"));
-        assert!(!texts(&p.fetch()).iter().any(|s| s.contains("during the session")));
+        assert!(
+            !texts(&p.fetch())
+                .iter()
+                .any(|s| s.contains("during the session"))
+        );
 
         let plugin = plugins.path().join("skfake");
         std::fs::create_dir_all(plugin.join("locales")).unwrap();
@@ -1138,14 +1155,18 @@ mod tests {
     }
 
     #[test]
-    fn the_bar_settings_are_a_position_and_a_seconds_switch() {
+    fn the_bar_settings_are_a_position_a_seconds_switch_and_a_keystrokes_switch() {
         let (mut p, shared) = provider();
         p.push_path("Settings");
         p.push_path("Bar");
         assert_eq!(p.current_path(), "/settings/bar");
         assert_eq!(
             texts(&p.fetch()),
-            ["+<radio>bar position", "<checkbox>show seconds"]
+            [
+                "+<radio>bar position",
+                "<checkbox>show seconds",
+                "<checkbox>show key strokes"
+            ]
         );
         p.push_path("<radio>bar position");
         assert_eq!(p.current_path(), "/settings/bar/barPosition");
@@ -1156,6 +1177,7 @@ mod tests {
         shared.lock().unwrap().bar = BarSettings {
             position: desicompass_bar_protocol::Edge::Top,
             seconds: true,
+            keystrokes: true,
         };
         assert_eq!(
             texts(&p.fetch()),
@@ -1166,6 +1188,10 @@ mod tests {
             texts(&p.fetch())[1],
             tags::format_checkbox_checked("show seconds")
         );
+        assert_eq!(
+            texts(&p.fetch())[2],
+            tags::format_checkbox_checked("show key strokes")
+        );
     }
 
     #[test]
@@ -1173,12 +1199,14 @@ mod tests {
         let (mut p, shared) = provider();
         p.on_radio_change("<radio>bar position", "top");
         p.on_checkbox_change("show seconds", true);
+        p.on_checkbox_change("<checkbox>show key strokes", true);
         p.on_radio_change("bar position", "left");
         assert_eq!(
             shared.lock().unwrap().actions,
             [
                 Action::Set(bar::KEY_POSITION, "top".into()),
                 Action::Set(bar::KEY_SECONDS, "true".into()),
+                Action::Set(bar::KEY_KEYSTROKES, "true".into()),
             ]
         );
     }

@@ -1,4 +1,5 @@
-//! The bar's settings: where it sits, and whether the clock shows seconds.
+//! The bar's settings: where it sits, whether the clock shows seconds, and
+//! whether it shows the keys being pressed.
 //!
 //! One JSON object per user, `$XDG_CONFIG_HOME/desicompass/bar.json`. The
 //! superkey writes it (Settings > Bar, or Super+B), and the bar looks at it
@@ -6,7 +7,7 @@
 //! in the machine-wide accessibility object the login screen shares.
 //!
 //! ```json
-//! { "barPosition": "bottom", "barSeconds": false }
+//! { "barPosition": "bottom", "barSeconds": false, "barKeystrokes": false }
 //! ```
 //!
 //! A missing file, a missing key and a value this version does not know all
@@ -23,9 +24,11 @@ use crate::Edge;
 pub const KEY_POSITION: &str = "barPosition";
 /// Seconds on the clock.
 pub const KEY_SECONDS: &str = "barSeconds";
+/// The keys being pressed, in the bar's left half.
+pub const KEY_KEYSTROKES: &str = "barKeystrokes";
 
 /// Every key, in the order the superkey lists them.
-pub const KEYS: &[&str] = &[KEY_POSITION, KEY_SECONDS];
+pub const KEYS: &[&str] = &[KEY_POSITION, KEY_SECONDS, KEY_KEYSTROKES];
 
 /// The positions, in the order the superkey lists them.
 pub const POSITIONS: &[&str] = &["bottom", "top"];
@@ -37,6 +40,7 @@ pub const POLL_INTERVAL: Duration = Duration::from_millis(250);
 pub struct BarSettings {
     pub position: Edge,
     pub seconds: bool,
+    pub keystrokes: bool,
 }
 
 impl BarSettings {
@@ -45,6 +49,7 @@ impl BarSettings {
         match key {
             KEY_POSITION => Some(self.position.as_str().to_owned()),
             KEY_SECONDS => Some(self.seconds.to_string()),
+            KEY_KEYSTROKES => Some(self.keystrokes.to_string()),
             _ => None,
         }
     }
@@ -60,17 +65,8 @@ impl BarSettings {
                 }
                 None => false,
             },
-            KEY_SECONDS => match value {
-                "true" => {
-                    self.seconds = true;
-                    true
-                }
-                "false" => {
-                    self.seconds = false;
-                    true
-                }
-                _ => false,
-            },
+            KEY_SECONDS => parse_switch(value).map(|b| self.seconds = b).is_some(),
+            KEY_KEYSTROKES => parse_switch(value).map(|b| self.keystrokes = b).is_some(),
             _ => false,
         }
     }
@@ -90,6 +86,9 @@ impl BarSettings {
             if let Some(Value::Bool(b)) = obj.get(KEY_SECONDS) {
                 s.seconds = *b;
             }
+            if let Some(Value::Bool(b)) = obj.get(KEY_KEYSTROKES) {
+                s.keystrokes = *b;
+            }
         }
         s
     }
@@ -100,6 +99,16 @@ impl BarSettings {
             Value::String(self.position.as_str().to_owned()),
         );
         obj.insert(KEY_SECONDS.to_owned(), Value::Bool(self.seconds));
+        obj.insert(KEY_KEYSTROKES.to_owned(), Value::Bool(self.keystrokes));
+    }
+}
+
+/// An on/off value as stored.
+fn parse_switch(value: &str) -> Option<bool> {
+    match value {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
     }
 }
 
@@ -252,8 +261,10 @@ mod tests {
         let s = BarSettings::default();
         assert_eq!(s.position, Edge::Bottom);
         assert!(!s.seconds);
+        assert!(!s.keystrokes);
         assert_eq!(s.get(KEY_POSITION).as_deref(), Some("bottom"));
         assert_eq!(s.get(KEY_SECONDS).as_deref(), Some("false"));
+        assert_eq!(s.get(KEY_KEYSTROKES).as_deref(), Some("false"));
         assert_eq!(s.get("wallpaper"), None);
     }
 
@@ -262,16 +273,21 @@ mod tests {
         let mut s = BarSettings::default();
         assert!(s.set(KEY_POSITION, "top"));
         assert!(s.set(KEY_SECONDS, "true"));
+        assert!(s.set(KEY_KEYSTROKES, "true"));
         assert!(!s.set(KEY_POSITION, "left"));
         assert!(!s.set(KEY_SECONDS, "yes"));
+        assert!(!s.set(KEY_KEYSTROKES, "1"));
         assert!(!s.set("wallpaper", "cats"));
         assert_eq!(
             s,
             BarSettings {
                 position: Edge::Top,
-                seconds: true
+                seconds: true,
+                keystrokes: true,
             }
         );
+        assert!(s.set(KEY_KEYSTROKES, "false"));
+        assert!(!s.keystrokes);
         for k in KEYS {
             assert!(BarSettings::is_key(k));
         }
@@ -284,7 +300,7 @@ mod tests {
             "",
             "[]",
             "not json",
-            "{\"barPosition\":\"left\",\"barSeconds\":1}",
+            "{\"barPosition\":\"left\",\"barSeconds\":1,\"barKeystrokes\":\"yes\"}",
         ] {
             assert_eq!(
                 BarSettings::from_json(text),
@@ -293,10 +309,13 @@ mod tests {
             );
         }
         assert_eq!(
-            BarSettings::from_json("{\"barPosition\":\"top\",\"barSeconds\":true}"),
+            BarSettings::from_json(
+                "{\"barPosition\":\"top\",\"barSeconds\":true,\"barKeystrokes\":true}"
+            ),
             BarSettings {
                 position: Edge::Top,
-                seconds: true
+                seconds: true,
+                keystrokes: true,
             }
         );
     }
@@ -311,6 +330,7 @@ mod tests {
         let mut f = BarSettingsFile::open(Some(path.clone()));
         f.set(KEY_POSITION, "top").unwrap();
         f.set(KEY_SECONDS, "true").unwrap();
+        f.set(KEY_KEYSTROKES, "true").unwrap();
         assert!(f.set(KEY_SECONDS, "maybe").is_err());
 
         let text = std::fs::read_to_string(&path).unwrap();
@@ -318,11 +338,13 @@ mod tests {
         assert_eq!(v["future"], 1);
         assert_eq!(v[KEY_POSITION], "top");
         assert_eq!(v[KEY_SECONDS], true);
+        assert_eq!(v[KEY_KEYSTROKES], true);
         assert_eq!(
             BarSettingsFile::open(Some(path)).get(),
             BarSettings {
                 position: Edge::Top,
-                seconds: true
+                seconds: true,
+                keystrokes: true,
             }
         );
     }

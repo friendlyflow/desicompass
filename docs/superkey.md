@@ -120,7 +120,8 @@ language are not accessibility, but they live in the same shared object below,
 and the login screen shows them too.
 
 **Bar** is the bar's own settings, a radio group for its position (bottom, top)
-and a checkbox for seconds on its clock. They are the user's, in
+and checkboxes for seconds on its clock and for showing the keys being
+pressed. They are the user's, in
 `$XDG_CONFIG_HOME/desicompass/bar.json`, which the bar follows (see
 [bar.md](bar.md)).
 
