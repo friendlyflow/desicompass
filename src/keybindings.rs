@@ -66,11 +66,11 @@ pub enum BindingAction {
     /// Request to end the session. Confirmed by pressing it twice; see
     /// `State::request_quit`.
     Quit,
-    /// Open the superkey on one of its sections (Super+W, Super+C, Super+S for
-    /// the Store, Super+B, Super+N, Super+T). `Section::Root` is never bound to
-    /// a chord: it is the bare Super tap, which [`SuperTap`] detects. Nor is
-    /// `Section::Settings`: Super+S twice in quick succession, which the
-    /// superkey works out.
+    /// Open the superkey on one of its sections (Super+W, Super+C, Super+S,
+    /// Super+B, Super+N, Super+T). `Section::Root` is never bound to a chord: it
+    /// is the bare Super tap, which [`SuperTap`] detects. Nor is
+    /// `Section::Store`: Super+S twice in quick succession, which the superkey
+    /// works out.
     Superkey(Section),
     /// Have the bar say the time and the date out loud (Super+D).
     SayTime,
@@ -109,9 +109,9 @@ pub fn evaluate(mods: Mods, keysym: u32) -> BindingAction {
         // the worst a stray press does is open a list Escape closes.
         (keysyms::KEY_w, false) => BindingAction::Superkey(Section::Windows),
         (keysyms::KEY_c, false) => BindingAction::Superkey(Section::Controls),
-        // The Store; twice in quick succession, the settings (the superkey
+        // The settings; twice in quick succession, the Store (the superkey
         // decides, as only it knows when the last one came).
-        (keysyms::KEY_s, false) => BindingAction::Superkey(Section::Store),
+        (keysyms::KEY_s, false) => BindingAction::Superkey(Section::Settings),
         (keysyms::KEY_b, false) => BindingAction::Superkey(Section::Status),
         (keysyms::KEY_n, false) => BindingAction::Superkey(Section::Notifications),
         (keysyms::KEY_t, false) => BindingAction::Superkey(Section::Tutorial),
@@ -426,12 +426,12 @@ mod tests {
     }
 
     #[test]
-    fn super_s_opens_the_store_which_hands_a_second_press_to_the_settings() {
-        // Every press asks for the Store; the superkey turns the second of two
-        // quick ones into the settings.
+    fn super_s_opens_the_settings_which_hand_a_second_press_to_the_store() {
+        // Every press asks for the settings; the superkey turns the second of
+        // two quick ones into the Store.
         assert_eq!(
             evaluate(sup(), keysyms::KEY_s),
-            BindingAction::Superkey(Section::Store)
+            BindingAction::Superkey(Section::Settings)
         );
         assert_eq!(
             evaluate(sup_shift(), keysyms::KEY_s),
@@ -483,7 +483,7 @@ mod tests {
         );
         assert_eq!(
             evaluate(sup(), keysyms::KEY_s),
-            BindingAction::Superkey(Section::Store)
+            BindingAction::Superkey(Section::Settings)
         );
         // Shifted, they are not bound: the client keeps them.
         for sym in [keysyms::KEY_w, keysyms::KEY_c, keysyms::KEY_s] {

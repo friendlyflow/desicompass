@@ -8,8 +8,8 @@
 //! + Tutorial [t]          the sicompass tutorial, which the app leaves out in
 //!                         a session
 //! + Store [s]             the sicompass Store, which the app leaves out in a
-//!                         session too
-//! + Settings [s]          Super+S twice in quick succession
+//!                         session too: Super+S twice in quick succession
+//! + Settings [s]
 //!   +R color scheme       dark, light
 //!   +R language           the four languages, each named in itself
 //!   + Accessibility       screen reader, font scale, shoulder-surfing protection
@@ -623,7 +623,7 @@ pub fn shortcut(node: Node) -> Option<char> {
         Node::Status => Some('b'),
         Node::Notifications => Some('n'),
         Node::Tutorial => Some('t'),
-        // Twice in quick succession it is Settings (`gui::cycled`).
+        // Super+S twice in quick succession (`gui::cycled`).
         Node::Store => Some('s'),
         _ => None,
     }

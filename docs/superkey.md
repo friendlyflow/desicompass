@@ -37,7 +37,7 @@ user-facing side is in the README.
 | | Compositor (`src/superkey.rs`) | Superkey (`lib/lib_superkey`) |
 |---|---|---|
 | Starting | Finds it (`superkey::resolve_command`), runs it once, restarts it with a back-off, gives up after 5 starts in 60 s | Says `hello` |
-| Keys | Detects the bare Super tap (`keybindings::SuperTap`), binds Super+W/C/S/B/N/T | Everything typed while it has the keyboard. Turns the second of two quick Super+S into Settings (`gui::cycled`) |
+| Keys | Detects the bare Super tap (`keybindings::SuperTap`), binds Super+W/C/S/B/N/T | Everything typed while it has the keyboard. Turns the second of two quick Super+S into the Store (`gui::cycled`) |
 | Placing | Keeps its toplevel out of the tiler, the window list and the focus stack. Gives it the whole output, full screen, on top | Nothing: it is told its size |
 | Showing | Sends `show`, moves the keyboard to it, maps it on its next frame | Opens the section in simple search, draws again |
 | Hiding | Unmaps it, sends `hidden`, gives the keyboard back | Stops drawing (`AppRenderer::suspended`) |
@@ -115,7 +115,7 @@ showing's list does not flash up.
 
 ## The Store it shows
 
-The Store section (Super+S) is sicompass's own Store (`sicompass-store`),
+The Store section (Super+S twice) is sicompass's own Store (`sicompass-store`),
 embedded whole: its programs list, its install, update and uninstall buttons,
 and its tier pages. Its downloads run on the Store's own thread and are picked
 up in the superkey's `tick` wherever the cursor is, hidden or not, so an
@@ -134,14 +134,14 @@ sicompass it was built from, not the one running, so `sicompass-tutorial` and
 `sicompass-store` are pinned to the same sicompass commit as the flake's
 `sicompass` input. Move all three together.
 
-Super+S always asks for the Store. Pressed again within the double-tap window
+Super+S always asks for Settings. Pressed again within the double-tap window
 (sicompass-ui's `handlers::DELTA_MS`, 400 ms, the window Ctrl+A twice uses in
-the app), the superkey turns the second one into Settings (`gui::cycled`),
+the app), the superkey turns the second one into the Store (`gui::cycled`),
 which has no key of its own. A third press is a first one again.
 
 ## The settings it shows
 
-The Settings section (Super+S twice) is a radio group each for the colour scheme and
+The Settings section (Super+S) is a radio group each for the colour scheme and
 the language, then two groups, Accessibility and Bar. The colour scheme and the
 language are not accessibility, but they live in the same shared object below,
 and the login screen shows them too.

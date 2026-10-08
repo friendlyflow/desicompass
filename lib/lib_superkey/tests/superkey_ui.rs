@@ -327,30 +327,36 @@ fn super_s_lands_on_the_store_in_general_mode() {
     assert_store_in_general(&h);
 }
 
-#[test]
-fn super_s_twice_quickly_lands_on_settings() {
-    let mut h = harness();
-    h.show(Section::Store, windows());
-    h.frame();
-    // The compositor asks for the Store again; the superkey pairs the two.
-    h.send(&ToSuperkey::Show {
-        section: Section::Store,
-        windows: windows(),
-    });
-    h.frames_until(|r| r.launcher_mode);
-    h.frame();
+fn assert_settings_in_search(h: &Harness) {
     assert_eq!(h.r.coordinate, Coordinate::SimpleSearch);
+    assert!(h.r.launcher_mode);
     let rows = h.rows();
     assert!(
         rows.iter().any(|r| r.contains("Accessibility")),
         "not the settings: {rows:?}"
     );
+}
 
-    // Once Super+S is slower than a double tap, it is the Store again.
-    std::thread::sleep(Duration::from_millis(sicompass_ui::handlers::DELTA_MS + 50));
-    h.show(Section::Store, windows());
+#[test]
+fn super_s_twice_quickly_lands_on_the_store() {
+    let mut h = harness();
+    h.show(Section::Settings, windows());
+    h.frame();
+    assert_settings_in_search(&h);
+    // The compositor asks for Settings again; the superkey pairs the two.
+    h.send(&ToSuperkey::Show {
+        section: Section::Settings,
+        windows: windows(),
+    });
+    h.frames_until(|r| !r.launcher_mode);
     h.frame();
     assert_store_in_general(&h);
+
+    // Once Super+S is slower than a double tap, it is Settings again.
+    std::thread::sleep(Duration::from_millis(sicompass_ui::handlers::DELTA_MS + 50));
+    h.show(Section::Settings, windows());
+    h.frame();
+    assert_settings_in_search(&h);
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! The superkey: a window of its own (desicompass-superkey, drawn by
 //! sicompass-ui) that the compositor starts once per session and shows on a
-//! bare Super tap, Super+W, Super+C, Super+S (the Store, twice for the
-//! settings), Super+B, Super+N or Super+T.
+//! bare Super tap, Super+W, Super+C, Super+S (the settings, twice for the
+//! Store), Super+B, Super+N or Super+T.
 //!
 //! It is a client, but not an ordinary one:
 //!

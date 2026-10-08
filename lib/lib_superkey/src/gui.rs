@@ -81,23 +81,23 @@ fn in_program(id: &IdArray) -> Option<Node> {
     PROGRAMS.into_iter().find(|&n| section_index(n) == at)
 }
 
-/// Super+S is the Store, and pressed again within the double-tap window it is
-/// Settings, which has no key of its own. `now` is in [`handlers::sdl_ticks`]
-/// milliseconds, and `last` the Store press a second one would pair with: a
+/// Super+S is Settings, and pressed again within the double-tap window it is
+/// the Store, which has no key of its own. `now` is in [`handlers::sdl_ticks`]
+/// milliseconds, and `last` the Settings press a second one would pair with: a
 /// pair is used up, so a third press is a first one again, the way Ctrl+A
 /// twice is in the app.
 pub fn cycled(section: Section, now: u64, last: &mut Option<u64>) -> Section {
-    if section != Section::Store {
+    if section != Section::Settings {
         return section;
     }
     if last
         .take()
         .is_some_and(|t| now.saturating_sub(t) <= handlers::DELTA_MS)
     {
-        Section::Settings
+        Section::Store
     } else {
         *last = Some(now);
-        Section::Store
+        Section::Settings
     }
 }
 
@@ -125,7 +125,7 @@ pub struct SuperkeyHooks {
     /// Standalone (no compositor): Escape quits instead of hiding.
     standalone: bool,
     quit: AtomicBool,
-    /// When Super+S last asked for the Store, unpaired ([`cycled`]).
+    /// When Super+S last asked for Settings, unpaired ([`cycled`]).
     last_store_show: Mutex<Option<u64>>,
     /// The program the cursor was last inside, where Home twice lands.
     last_program: Mutex<Node>,
@@ -716,35 +716,35 @@ mod tests {
     }
 
     #[test]
-    fn super_s_is_the_store_and_twice_quickly_the_settings() {
+    fn super_s_is_the_settings_and_twice_quickly_the_store() {
         let mut last = None;
         let t = 1_000_000;
-        assert_eq!(cycled(Section::Store, t, &mut last), Section::Store);
+        assert_eq!(cycled(Section::Settings, t, &mut last), Section::Settings);
         assert_eq!(
-            cycled(Section::Store, t + handlers::DELTA_MS, &mut last),
-            Section::Settings,
+            cycled(Section::Settings, t + handlers::DELTA_MS, &mut last),
+            Section::Store,
             "a second press within the window"
         );
-        // The pair is used up: a third press is the Store again.
+        // The pair is used up: a third press is Settings again.
         assert_eq!(
-            cycled(Section::Store, t + handlers::DELTA_MS + 10, &mut last),
+            cycled(Section::Settings, t + handlers::DELTA_MS + 10, &mut last),
+            Section::Settings
+        );
+        // Too slow for a pair: Settings again, which a quick next one pairs.
+        let later = t + 10 * handlers::DELTA_MS;
+        assert_eq!(
+            cycled(Section::Settings, later, &mut last),
+            Section::Settings
+        );
+        assert_eq!(
+            cycled(Section::Settings, later + 1, &mut last),
             Section::Store
         );
-        // Too slow for a pair: the Store again, which a quick next one pairs.
-        let later = t + 10 * handlers::DELTA_MS;
-        assert_eq!(cycled(Section::Store, later, &mut last), Section::Store);
-        assert_eq!(
-            cycled(Section::Store, later + 1, &mut last),
-            Section::Settings
-        );
         // Other sections pass through and leave the pairing alone.
-        assert_eq!(cycled(Section::Store, t, &mut last), Section::Store);
+        assert_eq!(cycled(Section::Settings, t, &mut last), Section::Settings);
         assert_eq!(cycled(Section::Windows, t + 1, &mut last), Section::Windows);
-        assert_eq!(
-            cycled(Section::Settings, t + 2, &mut last),
-            Section::Settings
-        );
-        assert_eq!(cycled(Section::Store, t + 3, &mut last), Section::Settings);
+        assert_eq!(cycled(Section::Store, t + 2, &mut last), Section::Store);
+        assert_eq!(cycled(Section::Settings, t + 3, &mut last), Section::Store);
     }
 
     #[test]

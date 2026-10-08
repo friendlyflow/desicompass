@@ -50,9 +50,8 @@ pub enum Section {
     Windows,
     /// Suspend, reboot, power off, log out. Super+C.
     Controls,
-    /// The settings: accessibility, then the bar. No key of its own: Super+S
-    /// twice in quick succession, which the superkey turns the second
-    /// [`Section::Store`] into.
+    /// The settings: accessibility, then the bar. Super+S, which pressed again
+    /// within the double-tap window goes on to [`Section::Store`].
     Settings,
     /// What the bar shows, in words. Super+B.
     Status,
@@ -61,8 +60,8 @@ pub enum Section {
     /// The sicompass tutorial, which the app leaves out in a session. Super+T.
     Tutorial,
     /// The sicompass Store, which the app leaves out in a session too.
-    /// Super+S, which pressed again within the double-tap window goes on to
-    /// [`Section::Settings`].
+    /// No key of its own: Super+S twice in quick succession, which the
+    /// superkey turns the second [`Section::Settings`] into.
     Store,
 }
 
