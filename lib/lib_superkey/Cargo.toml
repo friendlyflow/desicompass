@@ -34,16 +34,16 @@ zbus = { version = "5", default-features = false, features = ["blocking-api", "a
 # two copies. sicompass-ui is not on crates.io: pinned by git, to a `rev`
 # between releases and a `tag` at a release. For local work, uncomment the
 # `[patch]` sections at the bottom of the workspace's root Cargo.toml.
-sicompass-sdk = "0.9.5"
-sicompass-ui = { git = "https://github.com/friendlyflow/sicompass-ui", rev = "1447098b622c9df701d5c441553d2ad824be5e44" }
+sicompass-sdk = "0.9.6"
+sicompass-ui = { git = "https://github.com/friendlyflow/sicompass-ui", tag = "v0.2.1" }
 # The Tutorial and Store sections: sicompass's own tutorial and Store
 # providers, which the app leaves out in a session. Never published, so pinned
 # by git like sicompass-ui, both to the same sicompass commit, and that commit
 # is the one the flake's `sicompass` input is locked to: the Store installs
 # plugins for that app, so it must check `minAppVersion` and the plugin
 # protocol against that app's. The Store brings reqwest and its TLS stack.
-sicompass-tutorial = { git = "https://github.com/friendlyflow/sicompass", rev = "f3c073976328842ae2f8345e5f62e3590d003573" }
-sicompass-store = { git = "https://github.com/friendlyflow/sicompass", rev = "f3c073976328842ae2f8345e5f62e3590d003573" }
+sicompass-tutorial = { git = "https://github.com/friendlyflow/sicompass", tag = "v0.2.1" }
+sicompass-store = { git = "https://github.com/friendlyflow/sicompass", tag = "v0.2.1" }
 
 serde = "1"
 serde_json = "1"

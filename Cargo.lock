@@ -997,7 +997,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "desicompass-bar-protocol",
@@ -1013,7 +1013,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-bar"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "ash",
  "clap",
@@ -1022,7 +1022,7 @@ dependencies = [
  "libc",
  "sdl3",
  "sicompass-sdk",
- "sicompass-ui 0.2.0 (git+https://github.com/friendlyflow/sicompass-ui?rev=45f6a676b208db6bf2f70520d64f21f815f0fabc)",
+ "sicompass-ui",
  "tempfile",
  "tracing",
  "tracing-subscriber",
@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-bar-protocol"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "desicompass-superkey-protocol",
  "libc",
@@ -1043,7 +1043,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-superkey"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "desicompass-bar-protocol",
@@ -1055,7 +1055,7 @@ dependencies = [
  "sicompass-sdk",
  "sicompass-store",
  "sicompass-tutorial",
- "sicompass-ui 0.2.0 (git+https://github.com/friendlyflow/sicompass-ui?rev=1447098b622c9df701d5c441553d2ad824be5e44)",
+ "sicompass-ui",
  "tempfile",
  "tracing",
  "tracing-subscriber",
@@ -1064,7 +1064,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-superkey-protocol"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3951,8 +3951,9 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "sicompass-sdk"
-version = "0.9.5"
-source = "git+https://github.com/friendlyflow/sicompass-plugin-sdk?rev=27cdf66e5c2c42321417ec6a00c790ff70bbd821#27cdf66e5c2c42321417ec6a00c790ff70bbd821"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59086593cca37b8fa9b8dde83412dcffa942cb17e41d63bf9b41aa64d513fec0"
 dependencies = [
  "async-trait",
  "base64",
@@ -3978,8 +3979,8 @@ dependencies = [
 
 [[package]]
 name = "sicompass-store"
-version = "0.2.0"
-source = "git+https://github.com/friendlyflow/sicompass?rev=f3c073976328842ae2f8345e5f62e3590d003573#f3c073976328842ae2f8345e5f62e3590d003573"
+version = "0.2.1"
+source = "git+https://github.com/friendlyflow/sicompass?tag=v0.2.1#813329b07db3e2db50664a12b6621d486a5eba0a"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -3993,8 +3994,8 @@ dependencies = [
 
 [[package]]
 name = "sicompass-tutorial"
-version = "0.2.0"
-source = "git+https://github.com/friendlyflow/sicompass?rev=f3c073976328842ae2f8345e5f62e3590d003573#f3c073976328842ae2f8345e5f62e3590d003573"
+version = "0.2.1"
+source = "git+https://github.com/friendlyflow/sicompass?tag=v0.2.1#813329b07db3e2db50664a12b6621d486a5eba0a"
 dependencies = [
  "serde_json",
  "sicompass-sdk",
@@ -4002,38 +4003,8 @@ dependencies = [
 
 [[package]]
 name = "sicompass-ui"
-version = "0.2.0"
-source = "git+https://github.com/friendlyflow/sicompass-ui?rev=1447098b622c9df701d5c441553d2ad824be5e44#1447098b622c9df701d5c441553d2ad824be5e44"
-dependencies = [
- "accesskit",
- "accesskit_macos",
- "accesskit_unix",
- "accesskit_windows",
- "ash",
- "async-trait",
- "base64",
- "freetype",
- "glam",
- "image",
- "libc",
- "nucleo-matcher",
- "sdl3",
- "sdl3-sys",
- "serde",
- "serde_json",
- "sicompass-sdk",
- "tokio",
- "tracing",
- "unicode-normalization",
- "whatlang",
- "windows",
- "zeroize",
-]
-
-[[package]]
-name = "sicompass-ui"
-version = "0.2.0"
-source = "git+https://github.com/friendlyflow/sicompass-ui?rev=45f6a676b208db6bf2f70520d64f21f815f0fabc#45f6a676b208db6bf2f70520d64f21f815f0fabc"
+version = "0.2.1"
+source = "git+https://github.com/friendlyflow/sicompass-ui?tag=v0.2.1#7dde157676eec7f44750335cd95acec128535f7b"
 dependencies = [
  "accesskit",
  "accesskit_macos",
