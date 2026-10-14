@@ -997,7 +997,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "clap",
  "desicompass-bar-protocol",
@@ -1013,7 +1013,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-bar"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "ash",
  "clap",
@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-bar-protocol"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "desicompass-superkey-protocol",
  "libc",
@@ -1043,7 +1043,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-superkey"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "clap",
  "desicompass-bar-protocol",
@@ -1064,7 +1064,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-superkey-protocol"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -3951,9 +3951,9 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "sicompass-sdk"
-version = "0.9.6"
+version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59086593cca37b8fa9b8dde83412dcffa942cb17e41d63bf9b41aa64d513fec0"
+checksum = "d350949620041acf85d4222b0fa9de08b72d713a31d882ca0e3ea8d5dc276d26"
 dependencies = [
  "async-trait",
  "base64",
@@ -3979,8 +3979,8 @@ dependencies = [
 
 [[package]]
 name = "sicompass-store"
-version = "0.2.1"
-source = "git+https://github.com/friendlyflow/sicompass?tag=v0.2.1#813329b07db3e2db50664a12b6621d486a5eba0a"
+version = "0.2.3"
+source = "git+https://github.com/friendlyflow/sicompass?tag=v0.2.3#4d59cde7558f983ab03ea58fafe47bf7a3befe75"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -3994,8 +3994,8 @@ dependencies = [
 
 [[package]]
 name = "sicompass-tutorial"
-version = "0.2.1"
-source = "git+https://github.com/friendlyflow/sicompass?tag=v0.2.1#813329b07db3e2db50664a12b6621d486a5eba0a"
+version = "0.2.3"
+source = "git+https://github.com/friendlyflow/sicompass?tag=v0.2.3#4d59cde7558f983ab03ea58fafe47bf7a3befe75"
 dependencies = [
  "serde_json",
  "sicompass-sdk",

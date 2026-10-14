@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+
+Runs sicompass 0.2.3 and loginsicompass 0.2.1.
+
+- The Store in the superkey (Super+S twice quickly) turns on cloud sync when you pay for Sicompass Cloud, the same as in sicompass: a plugin's "enable cloud sync" checkbox appears in sicompass once you hold the service, and the superkey's Store ticks it for the plugins the service covers. The Store pages say which plugins that is.
+- A renewed subscription reaches the Store here too, so a monthly subscription no longer looks expired after a month.
+
 ## 0.2.1
 
 Runs sicompass 0.2.1 and loginsicompass 0.2.1.

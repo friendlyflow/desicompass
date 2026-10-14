@@ -13,7 +13,7 @@
     # greeter runs inside it too. Following our nixpkgs keeps one nixpkgs in
     # the system closure rather than several.
     sicompass = {
-      url = "github:friendlyflow/sicompass/v0.2.1";
+      url = "github:friendlyflow/sicompass/v0.2.3";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.crane.follows = "crane";
     };
