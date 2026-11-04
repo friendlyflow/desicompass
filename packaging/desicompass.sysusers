@@ -1,0 +1,4 @@
+# The group that may write /var/lib/sicompass/accessibility.json, the
+# accessibility settings the login screen and every session share. The same
+# group as `users.groups.sicompass-a11y` in the NixOS module.
+g sicompass-a11y - -

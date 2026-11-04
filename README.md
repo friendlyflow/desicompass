@@ -153,6 +153,39 @@ instead, set `services.desicompass.package`,
 `services.desicompass.sicompassPackage` and
 `services.desicompass.greeter.package`.
 
+## Install on Debian, Ubuntu and Fedora
+
+| Package | Download |
+| --- | --- |
+| `.deb`, for Debian 12, Ubuntu 22.04 and newer | [desicompass_amd64.deb](https://github.com/friendlyflow/desicompass/releases/latest/download/desicompass_amd64.deb) |
+| `.rpm`, for Fedora and openSUSE | [desicompass.x86_64.rpm](https://github.com/friendlyflow/desicompass/releases/latest/download/desicompass.x86_64.rpm) |
+| Archive, the programs only | [desicompass-x86_64-unknown-linux-gnu.tar.xz](https://github.com/friendlyflow/desicompass/releases/latest/download/desicompass-x86_64-unknown-linux-gnu.tar.xz) |
+
+desicompass runs Sicompass, so download the Sicompass package for your system
+from [its releases](https://github.com/friendlyflow/sicompass/releases/latest)
+too, and install the two together from the folder holding them:
+
+```bash
+sudo apt install ./sicompass_*_amd64.deb ./desicompass_amd64.deb
+sudo dnf install ./sicompass-*.x86_64.rpm ./desicompass.x86_64.rpm
+```
+
+Log out, and your login screen offers Desicompass next to what it already
+offers. If the session fails, you are back at that login screen. The session's
+output goes to the journal: `journalctl -t desicompass -b`.
+
+The install adds everyone with an account on this computer to the
+`sicompass-a11y` group, which lets the login screen and the session share
+accessibility settings. It takes effect at the next login. For an account added
+later, run `sudo usermod -aG sicompass-a11y <name>`.
+
+To replace the login screen itself, see
+[loginsicompass](https://github.com/friendlyflow/loginsicompass#install-on-debian-ubuntu-and-fedora).
+
+The archive holds the programs, the session script and the session entry, and
+leaves the rest to you. Put the programs and the script in `/usr/bin` and the
+entry in `/usr/share/wayland-sessions`.
+
 ## Screen readers and the keyboard
 
 desicompass hands the keyboard to Orca the way GNOME and COSMIC do, through the

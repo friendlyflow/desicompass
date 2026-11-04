@@ -1,0 +1,38 @@
+#!/bin/sh
+# Runs after installing the .deb (as postinst) and the .rpm (as %post, through
+# `post_install_script` in Cargo.toml), so it has to understand both ways of
+# saying "first install":
+#
+#   dpkg  postinst configure <old-version>    empty on a first install
+#   rpm   %post <copies installed after this> 1 on a first install
+#
+# It never fails: a failing script makes the package manager report the whole
+# install as broken, and nothing here is worth that. Without the group the
+# session still runs, and accessibility choices are just not saved.
+
+first_install=
+case "${1:-}" in
+    configure) [ -n "${2:-}" ] || first_install=1 ;;
+    1) first_install=1 ;;
+esac
+
+systemd-sysusers /usr/lib/sysusers.d/desicompass.conf >/dev/null 2>&1 \
+    || groupadd -f -r sicompass-a11y >/dev/null 2>&1 \
+    || :
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/desicompass.conf >/dev/null 2>&1 || :
+
+# The people on this computer, as the NixOS module does with its normal users.
+# Only on a first install: an upgrade must not put back someone an administrator
+# took out of the group. A new member has it from their next login. An account
+# added later needs `usermod -aG sicompass-a11y <name>`, which the README says.
+if [ -n "$first_install" ]; then
+    uid_min="$(awk '$1 == "UID_MIN" { print $2 }' /etc/login.defs 2>/dev/null)"
+    uid_max="$(awk '$1 == "UID_MAX" { print $2 }' /etc/login.defs 2>/dev/null)"
+    awk -F: -v min="${uid_min:-1000}" -v max="${uid_max:-60000}" \
+        '$3 >= min && $3 <= max { print $1 }' /etc/passwd 2>/dev/null \
+        | while read -r user; do
+            usermod -aG sicompass-a11y "$user" >/dev/null 2>&1 || :
+        done
+fi
+
+exit 0

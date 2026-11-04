@@ -6,3 +6,4 @@ graphify-out/
 .cache
 .vscode
 .claude/settings.local.json
+dist/

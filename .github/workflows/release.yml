@@ -1,0 +1,136 @@
+name: Release
+
+# A release is a vX.Y.Z tag (the /release skill pushes one). This builds the
+# Linux packages and attaches them to a GitHub release:
+#   desicompass_amd64.deb  desicompass.x86_64.rpm
+#   desicompass-x86_64-unknown-linux-gnu.tar.xz  SHA256SUMS.txt
+#
+# Run it by hand (Actions -> Release -> Run workflow) to build all of that and
+# publish nothing: the files stay on the run as an artifact. It is the only way
+# to find out that the packages still build before a tag makes that public.
+#
+# Nothing is published unless the .deb, installed on a bare Ubuntu, starts.
+#
+# docs/releasing.md has the rest. There is no cargo-dist here, unlike sicompass:
+# it exists to cover four targets and an MSI, and this is one target.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pinned so a new upstream release cannot change what a rebuild of an old tag
+  # produces.
+  CARGO_DEB_VERSION: "3.8.0"
+  CARGO_GENERATE_RPM_VERSION: "0.21.1"
+
+jobs:
+  packages:
+    name: .deb, .rpm and archive
+    # The oldest supported Ubuntu, for its glibc 2.35 floor, the same as
+    # sicompass's packages. CI uses the flake's toolchain instead, so this list
+    # is the one place that names the build's packages for a real distribution.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install build dependencies
+        # The compositor: libseat (whose .pc requires libsystemd), libinput, udev,
+        # gbm, drm, xkbcommon, wayland.
+        # The superkey and the bar: SDL3 is compiled from source and probes for
+        # each backend at configure time, FreeType needs libpng and zlib, and
+        # AccessKit needs dbus and at-spi. cmake is also for aws-lc-sys, the TLS
+        # under the Store.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake pkg-config dpkg-dev \
+            libseat-dev libsystemd-dev libinput-dev libudev-dev \
+            libgbm-dev libdrm-dev libegl-dev \
+            libwayland-dev libxkbcommon-dev libdecor-0-dev \
+            libpng-dev zlib1g-dev \
+            libx11-dev libxext-dev libxcursor-dev libxi-dev libxrandr-dev \
+            libxss-dev libxfixes-dev libxrender-dev libxtst-dev libxcb1-dev \
+            libpulse-dev libasound2-dev \
+            libdbus-1-dev libatspi2.0-dev
+
+      # Before any cargo invocation: freetype-sys looks in a build script.
+      - name: Provide a PNG-capable FreeType
+        run: ./scripts/setup-freetype.sh >> "$GITHUB_ENV"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ft${{ hashFiles('scripts/setup-freetype.sh') }}
+
+      - name: Install packaging tools
+        run: |
+          cargo install cargo-deb --locked --version "$CARGO_DEB_VERSION"
+          cargo install cargo-generate-rpm --locked --version "$CARGO_GENERATE_RPM_VERSION"
+
+      - name: Build the packages
+        run: ./scripts/release-package.sh
+
+      - name: Write the release notes
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          ./scripts/release-notes.sh "$version" > release-notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: |
+            dist/*
+            release-notes.md
+          if-no-files-found: error
+
+  install-check:
+    name: A clean install starts
+    needs: packages
+    runs-on: ubuntu-24.04
+    # A bare container, not the runner, which already has the libraries that are
+    # the question. See the script's header.
+    container: ubuntu:24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+
+      - name: Install the .deb and start it
+        run: ./scripts/check-install.sh dist/desicompass_amd64.deb
+
+  publish:
+    name: Publish the release
+    needs: [packages, install-check]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+
+      - name: Create the release and attach the packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --verify-tag $prerelease \
+                 --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber

@@ -142,4 +142,20 @@ The greeter side is documented in loginsicompass's `docs/greeter.md`.
 
 ## Releasing
 
-A release is a `vX.Y.Z` tag on `main`. See `.claude/skills/release/SKILL.md`.
+A release is a `vX.Y.Z` tag on `main`, which builds and publishes the `.deb`, the
+`.rpm` and the archive (`.github/workflows/release.yml`). See
+`.claude/skills/release/SKILL.md` for the steps and
+[docs/releasing.md](docs/releasing.md) for why. Easy to get wrong:
+
+- **`packaging/` mirrors the NixOS module.** The session script is the module's
+  session command without the store paths. A change to one belongs in the other.
+- **A moved `sicompass` pin moves three more things:** the flake's input and the
+  `sicompass (>= X)` floor in both package lists. `tests/packaging.rs` fails
+  until they agree.
+- **A file added to the packages goes in both lists** in `Cargo.toml`.
+  `tests/packaging.rs` compares them.
+- **A new system library goes in `release.yml`** too. CI builds in the flake's
+  toolchain and will not notice. Only the Release workflow run by hand does.
+- **A dlopened library has to be declared** in both package lists, since no scan
+  finds it. `scripts/check-install.sh` runs the `.deb` in a bare container for that
+  reason, and has to stay in one.

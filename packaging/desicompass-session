@@ -1,0 +1,19 @@
+#!/bin/sh
+# What the session entry in the .deb and the .rpm starts. The same command the
+# NixOS module writes into its entry (see mkSessionPackage in flake.nix, whose
+# comments explain why each word is there). Here it is a script so that the
+# Exec line holds no quoting: the Desktop Entry spec gives quotes no meaning
+# that every display manager agrees on.
+#
+#   systemd-cat       greetd captures neither stdout nor stderr of a session,
+#                     so without it a session dying at startup leaves no trace.
+#                     `journalctl -t desicompass -b` reads this.
+#   dbus-run-session  accesskit_unix speaks AT-SPI2 over the session bus, so
+#                     without one sicompass is mute to screen readers.
+#
+# desicompass finds desicompass-superkey and desicompass-bar next to itself.
+# The keyboard layout comes from systemd-localed (src/xkb.rs).
+PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}"
+export PATH
+exec systemd-cat --identifier=desicompass dbus-run-session \
+    desicompass --backend tty --startup-cmd "sicompass --session"

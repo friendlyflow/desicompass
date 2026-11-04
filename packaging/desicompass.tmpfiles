@@ -1,0 +1,4 @@
+# setgid, so every file written in it stays in the group, and writers replace
+# the file by a rename, which the directory's write permission allows any
+# member. The same line as `systemd.tmpfiles.rules` in the NixOS module.
+d /var/lib/sicompass 2775 root sicompass-a11y - -

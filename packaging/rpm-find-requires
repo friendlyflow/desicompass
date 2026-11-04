@@ -1,0 +1,19 @@
+#!/bin/sh
+# What each ELF file on stdin links directly, in rpm's spelling, for
+# `cargo generate-rpm --auto-req` (scripts/release-package.sh).
+#
+# The tool's own scan uses `ldd`, which also lists what the libraries link, and
+# those are the build machine's business. On Ubuntu that brought in libpcre.so.3
+# through libinput and glib, which Fedora does not have, so desicompass's .rpm
+# could not be installed at all. NEEDED and the version references are only what this binary
+# asks for itself, the same as rpm's own find-requires gives.
+# cargo-generate-rpm writes no newline after the last name, which `read` reports
+# as end of input even though it filled in `file`.
+while read -r file || [ -n "$file" ]; do
+    objdump -p "$file" 2>/dev/null | awk '
+        $1 == "NEEDED" { print $2 "()(64bit)" }
+        $1 == "required" && $2 == "from" { lib = $3; sub(/:$/, "", lib) }
+        lib != "" && NF == 4 && $4 ~ /^[A-Z]/ { print lib "(" $4 ")(64bit)" }
+    '
+done | grep -v '^ld-linux' | sort -u
+exit 0

@@ -1,5 +1,6 @@
 [package]
-# Shipped as a Nix package beside the compositor, never through crates.io.
+# Shipped beside the compositor, in its Nix package, .deb and .rpm, never through
+# crates.io.
 publish = false
 name = "desicompass-bar"
 version.workspace = true
@@ -15,6 +16,12 @@ path = "src/lib.rs"
 [[bin]]
 name = "desicompass-bar"
 path = "src/main.rs"
+
+[features]
+# Compile SDL3 from source and link it statically. Only the release packages do
+# (scripts/release-package.sh), because most distributions do not package SDL3
+# yet. Off by default, so the dev shell and the Nix build link the system one.
+bundled-sdl3 = ["sicompass-ui/bundled-sdl3"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 desicompass-bar-protocol = { path = "../lib_bar_protocol" }

@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Desicompass
+Comment=Use your whole computer from the keyboard, with no mouse needed
+Exec=/usr/bin/desicompass-session
+Type=Application
+DesktopNames=Desicompass

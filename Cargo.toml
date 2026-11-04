@@ -14,8 +14,8 @@ license = "GPL-3.0-only"
 repository = "https://github.com/friendlyflow/desicompass"
 
 [package]
-# Shipped as a Nix package and through the NixOS module in flake.nix, never
-# through crates.io.
+# Shipped as a Nix package, through the NixOS module in flake.nix, and as a .deb
+# and an .rpm (see below), never through crates.io.
 publish = false
 name = "desicompass"
 version.workspace = true
@@ -30,6 +30,83 @@ repository.workspace = true
 [[bin]]
 name = "desicompass"
 path = "src/main.rs"
+
+# ---------------------------------------------------------------------------
+# Linux packages, built by scripts/release-package.sh. See docs/releasing.md.
+# ---------------------------------------------------------------------------
+#
+# Two lists of the same files, because cargo-deb and cargo-generate-rpm each
+# want their own. tests/packaging.rs fails when they disagree. Fonts are inside
+# the binaries through sicompass-ui, so their licenses ship with them, and the
+# glob picks up a font the renderer adds.
+#
+# Several libraries are dlopened, so they show up as no ELF dependency, no scan
+# finds them, and each has to be declared here. The compositor dlopens libEGL,
+# libGLESv2 and libwayland-server by bare name. The superkey and the bar dlopen the
+# Vulkan loader, and SDL3 dlopens libwayland-client, -egl and -cursor. Missing one,
+# the compositor exits with `NoWaylandLib` on a computer that lacks it, which no
+# desktop does, so scripts/check-install.sh runs them in a bare container.
+# Everything else the binaries link is found by `$auto` (dpkg-shlibdeps) and by
+# packaging/rpm-find-requires.
+#
+# at-spi2-core is what accesskit_unix talks to over D-Bus. Without it the session
+# runs and is silent to screen readers, which here is a complete failure. The
+# session script runs systemd-cat and dbus-run-session (see its comments).
+#
+# The sicompass floor is the release the superkey's Store checks plugins against
+# (the `tag` of sicompass-store in lib/lib_superkey/Cargo.toml). tests/packaging.rs
+# fails if it does not move with that pin.
+#
+# Orca, foot (Super+Return's terminal), speech-dispatcher (Super+D) and
+# wireplumber (the volume) are recommended only: the session works without each.
+[package.metadata.deb]
+name = "desicompass"
+maintainer = "Nico Verrijdt <nico@friendlyflow.com>"
+copyright = "Nico Verrijdt <nico@friendlyflow.com>"
+section = "x11"
+priority = "optional"
+# Upstream's own package, so there is no Debian revision to add to the version.
+revision = ""
+depends = "$auto, sicompass (>= 0.2.3), systemd, dbus, at-spi2-core, libegl1, libgles2, libwayland-server0, libwayland-client0, libwayland-egl1, libwayland-cursor0, libvulkan1, mesa-vulkan-drivers | vulkan-icd"
+recommends = "orca, foot, speech-dispatcher, wireplumber"
+maintainer-scripts = "packaging/scripts/"
+assets = [
+    ["target/release/desicompass", "usr/bin/desicompass", "755"],
+    ["target/release/desicompass-superkey", "usr/bin/desicompass-superkey", "755"],
+    ["target/release/desicompass-bar", "usr/bin/desicompass-bar", "755"],
+    ["packaging/desicompass-session", "usr/bin/desicompass-session", "755"],
+    ["packaging/desicompass.desktop", "usr/share/wayland-sessions/desicompass.desktop", "644"],
+    ["packaging/desicompass.sysusers", "usr/lib/sysusers.d/desicompass.conf", "644"],
+    ["packaging/desicompass.tmpfiles", "usr/lib/tmpfiles.d/desicompass.conf", "644"],
+    ["README.md", "usr/share/doc/desicompass/README.md", "644"],
+    ["LICENSE", "usr/share/doc/desicompass/LICENSE", "644"],
+    ["THIRD-PARTY-LICENSES.html", "usr/share/doc/desicompass/THIRD-PARTY-LICENSES.html", "644"],
+    ["lib/lib_superkey/fonts/LICENSE-*.txt", "usr/share/doc/desicompass/", "644"],
+]
+
+# Run from the repo root: `source` is relative to the working directory. Sonames
+# and file paths rather than package names where the name is not the same on
+# Fedora and openSUSE.
+[package.metadata.generate-rpm]
+summary = "Keyboard-driven tiling Wayland compositor for sicompass"
+license = "GPL-3.0-only"
+url = "https://github.com/friendlyflow/desicompass"
+post_install_script = "packaging/scripts/postinst"
+requires = { sicompass = ">= 0.2.3", systemd = "*", "/usr/bin/dbus-run-session" = "*", at-spi2-core = "*", "libEGL.so.1()(64bit)" = "*", "libGLESv2.so.2()(64bit)" = "*", "libwayland-server.so.0()(64bit)" = "*", "libwayland-client.so.0()(64bit)" = "*", "libwayland-egl.so.1()(64bit)" = "*", "libwayland-cursor.so.0()(64bit)" = "*", "libvulkan.so.1()(64bit)" = "*" }
+recommends = { mesa-vulkan-drivers = "*", orca = "*", foot = "*", speech-dispatcher = "*", wireplumber = "*" }
+assets = [
+    { source = "target/release/desicompass", dest = "/usr/bin/desicompass", mode = "755" },
+    { source = "target/release/desicompass-superkey", dest = "/usr/bin/desicompass-superkey", mode = "755" },
+    { source = "target/release/desicompass-bar", dest = "/usr/bin/desicompass-bar", mode = "755" },
+    { source = "packaging/desicompass-session", dest = "/usr/bin/desicompass-session", mode = "755" },
+    { source = "packaging/desicompass.desktop", dest = "/usr/share/wayland-sessions/desicompass.desktop", mode = "644" },
+    { source = "packaging/desicompass.sysusers", dest = "/usr/lib/sysusers.d/desicompass.conf", mode = "644" },
+    { source = "packaging/desicompass.tmpfiles", dest = "/usr/lib/tmpfiles.d/desicompass.conf", mode = "644" },
+    { source = "README.md", dest = "/usr/share/doc/desicompass/README.md", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/doc/desicompass/LICENSE", mode = "644" },
+    { source = "THIRD-PARTY-LICENSES.html", dest = "/usr/share/doc/desicompass/THIRD-PARTY-LICENSES.html", mode = "644" },
+    { source = "lib/lib_superkey/fonts/LICENSE-*.txt", dest = "/usr/share/doc/desicompass/", mode = "644" },
+]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Smithay: Wayland compositor framework.
