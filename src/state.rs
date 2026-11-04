@@ -390,7 +390,7 @@ impl State {
             warn!("the superkey asked to start an empty command");
             return;
         };
-        let mut command = std::process::Command::new(program);
+        let mut command = user_program(program);
         command
             .args(args)
             .env("WAYLAND_DISPLAY", &self.socket_name)
@@ -427,7 +427,7 @@ impl State {
             return;
         }
         info!("spawning {}", self.spawn_cmd);
-        match std::process::Command::new("/bin/sh")
+        match user_program("/bin/sh")
             .args(["-c", &self.spawn_cmd])
             .env("WAYLAND_DISPLAY", &self.socket_name)
             .env("SICOMPASS_SESSION", "1")
@@ -941,3 +941,27 @@ impl DmabufHandler for State {
 }
 
 smithay::delegate_dispatch2!(State);
+
+/// A program the user starts, as opposed to this session's own superkey, bar and startup
+/// command. It does not inherit `LD_LIBRARY_PATH`: that is set for this compositor, and
+/// it outranks the program's own library paths, so LibreOffice would load our libraries
+/// and die with "version `GLIBC_2.43' not found". The session's own programs keep it,
+/// because a dev session's unwrapped debug builds find Vulkan through it.
+fn user_program(program: &str) -> std::process::Command {
+    let mut command = std::process::Command::new(program);
+    command.env_remove("LD_LIBRARY_PATH");
+    command
+}
+
+#[cfg(test)]
+mod user_program_tests {
+    use super::user_program;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn a_user_program_does_not_inherit_the_library_path() {
+        let command = user_program("/bin/sh");
+        let removed: Vec<(&OsStr, Option<&OsStr>)> = command.get_envs().collect();
+        assert_eq!(removed, [(OsStr::new("LD_LIBRARY_PATH"), None)]);
+    }
+}

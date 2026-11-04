@@ -2,6 +2,12 @@
 
 #[cfg(target_os = "linux")]
 fn main() {
+    // What this was given is for this process, which the dynamic loader has already read
+    // it for. What it starts (a power command, a browser, speech) must load its own
+    // libraries, or it dies with "version `GLIBC_2.43' not found".
+    // SAFETY: no other thread exists yet.
+    unsafe { std::env::remove_var("LD_LIBRARY_PATH") };
+
     use clap::Parser;
     use desicompass_superkey::{gui, ipc::Ipc, power};
     use desicompass_superkey_protocol::ENV_IPC_FD;
