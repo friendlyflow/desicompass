@@ -62,6 +62,12 @@
         GBM_BACKENDS_PATH = "/run/opengl-driver/lib/gbm";
       };
 
+      # A member's dependencies, built once. Only `cargo build`'s artifacts are
+      # reused by the member build; crane's default `cargo check` pass first
+      # would compile the whole graph for nothing.
+      depsOnly = craneLib: args:
+        craneLib.buildDepsOnly (args // { cargoCheckCommand = "true"; });
+
       # A sicompass plugin built from its checkout, laid out the way the Store
       # unpacks one: `$out/<name>/` holding the program as `<entry>`, its
       # `plugin.json`, `LICENSE` and `THIRD-PARTY-LICENSES.html` when present,
@@ -93,7 +99,7 @@
           };
         in
         craneLib.buildPackage (args // {
-          cargoArtifacts = craneLib.buildDepsOnly args;
+          cargoArtifacts = depsOnly craneLib args;
           installPhaseCommand = ''
             dir=$out/${manifest.name}
             mkdir -p "$dir"
@@ -245,7 +251,7 @@
         in
         rec {
           desicompass = craneLib.buildPackage (commonArgs // {
-            cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+            cargoArtifacts = depsOnly craneLib commonArgs;
             nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.makeWrapper ];
 
             # Only the dispatch libraries go on LD_LIBRARY_PATH, and the
@@ -321,7 +327,7 @@
               };
             in
             craneLib.buildPackage (superkeyArgs // {
-              cargoArtifacts = craneLib.buildDepsOnly superkeyArgs;
+              cargoArtifacts = depsOnly craneLib superkeyArgs;
               nativeBuildInputs = superkeyArgs.nativeBuildInputs ++ [ pkgs.makeWrapper ];
 
               # The Vulkan loader and the dispatch libraries on the path, the
@@ -402,7 +408,7 @@
               };
             in
             craneLib.buildPackage (barArgs // {
-              cargoArtifacts = craneLib.buildDepsOnly barArgs;
+              cargoArtifacts = depsOnly craneLib barArgs;
               nativeBuildInputs = barArgs.nativeBuildInputs ++ [ pkgs.makeWrapper ];
 
               # The same wrapper as the superkey's: the Vulkan loader and the
