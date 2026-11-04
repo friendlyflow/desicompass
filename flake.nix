@@ -342,6 +342,8 @@
 
                 # The fonts are inside the binary (through sicompass-ui), so
                 # their licenses travel with it.
+                install -Dm644 lib/lib_superkey/fonts/LICENSE-BootstrapIcons.txt \
+                  $out/share/doc/desicompass-superkey/LICENSE-BootstrapIcons.txt
                 install -Dm644 lib/lib_superkey/fonts/LICENSE-DejaVu.txt \
                   $out/share/doc/desicompass-superkey/LICENSE-DejaVu.txt
                 install -Dm644 lib/lib_superkey/fonts/LICENSE-NotoColorEmoji.txt \
@@ -419,6 +421,8 @@
                   ${lib.concatStringsSep " \\\n  " (lib.mapAttrsToList
                     (name: value: "--set-default ${name} ${value}") mesaVendor)}
 
+                install -Dm644 lib/lib_bar/fonts/LICENSE-BootstrapIcons.txt \
+                  $out/share/doc/desicompass-bar/LICENSE-BootstrapIcons.txt
                 install -Dm644 lib/lib_bar/fonts/LICENSE-DejaVu.txt \
                   $out/share/doc/desicompass-bar/LICENSE-DejaVu.txt
                 install -Dm644 lib/lib_bar/fonts/LICENSE-NotoColorEmoji.txt \
