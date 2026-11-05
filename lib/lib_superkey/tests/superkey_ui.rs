@@ -783,7 +783,7 @@ fn home_twice_in_the_tutorial_is_the_superkeys_root() {
 fn super_t_after_hiding_inside_the_tutorial_is_general_mode_again() {
     let mut h = harness();
     h.getting_started();
-    h.key(Keycode::Tab);
+    h.key(Keycode::F);
     assert_eq!(
         h.r.coordinate,
         Coordinate::SimpleSearch,
