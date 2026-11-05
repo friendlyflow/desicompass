@@ -42,7 +42,7 @@ zbus = { version = "5", default-features = false, features = ["blocking-api", "a
 # between releases and a `tag` at a release. For local work, uncomment the
 # `[patch]` sections at the bottom of the workspace's root Cargo.toml.
 sicompass-sdk = "0.9.12"
-sicompass-ui = { git = "https://github.com/friendlyflow/sicompass-ui", rev = "b19a02ff8d4482f1075dc48cdbe763696f9a746f" }
+sicompass-ui = { git = "https://github.com/friendlyflow/sicompass-ui", rev = "9d3a3087342f21f760de8b4696b0780e01ffe11c" }
 # The Tutorial and Store sections: sicompass's own tutorial and Store
 # providers, which the app leaves out in a session. Never published, so pinned
 # by git like sicompass-ui, both to the same sicompass commit, and that commit
