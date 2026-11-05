@@ -233,7 +233,7 @@ fn assert_tutorial_in_general(h: &Harness) {
     assert!(!h.r.launcher_mode, "the app's keymap, not the launcher's");
     let sections = h.rows();
     assert_eq!(sections.len(), 7, "{sections:?}");
-    assert!(sections[0].starts_with("+ Getting Started"), "{sections:?}");
+    assert!(sections[0].starts_with("+ Getting started"), "{sections:?}");
 }
 
 #[test]
@@ -248,7 +248,7 @@ fn super_t_opens_the_tutorial_in_general_mode() {
     assert_eq!(h.r.coordinate, Coordinate::General);
     let inside = h.rows();
     assert!(!inside.is_empty());
-    assert_ne!(inside, sections, "Right went into Getting Started");
+    assert_ne!(inside, sections, "Right went into Getting started");
 }
 
 #[test]
@@ -296,12 +296,12 @@ fn the_tutorials_inputs_are_edited_in_insert_mode() {
     let mut h = harness();
     h.show(Section::Tutorial, windows());
     h.frame();
-    h.key(Keycode::Right); // Getting Started
+    h.key(Keycode::Right); // Getting started
     let row = h
         .rows()
         .iter()
         .position(|l| l.contains("Edit me"))
-        .expect("Getting Started has an input");
+        .expect("Getting started has an input");
     for _ in 0..row {
         h.key(Keycode::Down);
     }
@@ -316,7 +316,7 @@ fn the_tutorials_inputs_are_edited_in_insert_mode() {
 fn assert_store_in_general(h: &Harness) {
     assert_eq!(h.r.coordinate, Coordinate::General);
     assert!(!h.r.launcher_mode, "the app's keymap, not the launcher's");
-    assert_eq!(h.rows(), ["+ programs", "+ tiers"]);
+    assert_eq!(h.rows(), ["+ programs", "+ tiers", "+ publish"]);
 }
 
 #[test]
@@ -692,11 +692,11 @@ impl Harness {
         }
     }
 
-    /// Into Getting Started, in General mode.
+    /// Into Getting started, in General mode.
     fn getting_started(&mut self) {
         self.show(Section::Tutorial, windows());
         self.frame();
-        self.go_to("Getting Started");
+        self.go_to("Getting started");
         self.key(Keycode::Right);
     }
 

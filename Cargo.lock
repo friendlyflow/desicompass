@@ -996,7 +996,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "clap",
  "desicompass-bar-protocol",
@@ -1012,7 +1012,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-bar"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "ash",
  "clap",
@@ -1030,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-bar-protocol"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "desicompass-superkey-protocol",
  "libc",
@@ -1042,7 +1042,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-superkey"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "clap",
  "desicompass-bar-protocol",
@@ -1063,7 +1063,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-superkey-protocol"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -4035,9 +4035,9 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "sicompass-sdk"
-version = "0.9.12"
+version = "0.9.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e91fbe10d15913cca347cb3016aaf7dfa33d3e93da94e4060140481b0d55938b"
+checksum = "e78b89c9a6cb4a27aa711c1263a4eeb1fa1d406ff11e082466ba23f9eaed4c86"
 dependencies = [
  "async-trait",
  "base64",
@@ -4063,8 +4063,8 @@ dependencies = [
 
 [[package]]
 name = "sicompass-store"
-version = "0.2.3"
-source = "git+https://github.com/friendlyflow/sicompass?tag=v0.2.3#4d59cde7558f983ab03ea58fafe47bf7a3befe75"
+version = "0.2.4"
+source = "git+https://github.com/friendlyflow/sicompass?tag=v0.2.4#53b14c1bb90f34aca01d175c59d8e7364c0be110"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -4078,8 +4078,8 @@ dependencies = [
 
 [[package]]
 name = "sicompass-tutorial"
-version = "0.2.3"
-source = "git+https://github.com/friendlyflow/sicompass?tag=v0.2.3#4d59cde7558f983ab03ea58fafe47bf7a3befe75"
+version = "0.2.4"
+source = "git+https://github.com/friendlyflow/sicompass?tag=v0.2.4#53b14c1bb90f34aca01d175c59d8e7364c0be110"
 dependencies = [
  "serde_json",
  "sicompass-sdk",
@@ -4087,8 +4087,8 @@ dependencies = [
 
 [[package]]
 name = "sicompass-ui"
-version = "0.2.1"
-source = "git+https://github.com/friendlyflow/sicompass-ui?rev=392bdb9641e327ef3a93e855739236e932c5dd31#392bdb9641e327ef3a93e855739236e932c5dd31"
+version = "0.2.2"
+source = "git+https://github.com/friendlyflow/sicompass-ui?tag=v0.2.2#8db8dce68ff06aec30177f1752bb823e230fdbf8"
 dependencies = [
  "accesskit",
  "accesskit_macos",

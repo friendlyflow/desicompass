@@ -1004,7 +1004,7 @@ mod tests {
         let sections = texts(&nested.children);
         assert_eq!(sections, tutorial_at(&[]));
         assert_eq!(sections.len(), 7, "{sections:?}");
-        assert!(sections[0].starts_with("+Getting Started"), "{sections:?}");
+        assert!(sections[0].starts_with("+Getting started"), "{sections:?}");
     }
 
     /// A tutorial section's label, as the renderer pushes it.
@@ -1026,7 +1026,7 @@ mod tests {
         assert_eq!(p.current_path(), "/tutorial");
         assert_eq!(texts(&p.fetch()), tutorial_at(&[]));
 
-        let getting_started = tutorial_section("Getting Started");
+        let getting_started = tutorial_section("Getting started");
         p.push_path(&getting_started);
         assert_eq!(p.current_path(), format!("/tutorial/{getting_started}"));
         assert_eq!(texts(&p.fetch()), tutorial_at(&[&getting_started]));
@@ -1046,7 +1046,7 @@ mod tests {
         let root = p.fetch();
         let nested = root[4].as_obj().unwrap();
         assert_eq!(nested.key, "Store [s]");
-        assert_eq!(texts(&nested.children), ["+programs", "+tiers"]);
+        assert_eq!(texts(&nested.children), ["+programs", "+tiers", "+publish"]);
     }
 
     #[test]
@@ -1054,7 +1054,7 @@ mod tests {
         let (mut p, shared) = provider();
         p.push_path("Store [s]");
         assert_eq!(p.current_path(), "/store");
-        assert_eq!(texts(&p.fetch()), ["+programs", "+tiers"]);
+        assert_eq!(texts(&p.fetch()), ["+programs", "+tiers", "+publish"]);
 
         p.push_path("programs");
         assert_eq!(p.current_path(), "/store/programs");
@@ -1098,7 +1098,7 @@ mod tests {
     fn leaving_the_tutorial_from_deep_inside_starts_it_over() {
         let (mut p, _) = provider();
         p.push_path("Tutorial");
-        p.push_path(&tutorial_section("Getting Started"));
+        p.push_path(&tutorial_section("Getting started"));
         p.set_current_path("/");
         p.push_path("Tutorial");
         assert_eq!(texts(&p.fetch()), tutorial_at(&[]));

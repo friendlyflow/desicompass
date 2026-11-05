@@ -26,16 +26,16 @@
         "sicompass-ui": "sicompass-ui"
       },
       "locked": {
-        "lastModified": 1791528308,
-        "narHash": "sha256-TJr+gPJ26f3xSQfyNERvvv5PWtFVYPMcInKpGB7U3uI=",
+        "lastModified": 1793891839,
+        "narHash": "sha256-5wvTvjAOK6xBt2SB6EtKALQdrZ8idI01Ob1QatWprVI=",
         "owner": "friendlyflow",
         "repo": "loginsicompass",
-        "rev": "7985b1c14d11186406e0f5f8a8043d7667881285",
+        "rev": "1893c419687fde13536c0b924848b47f44e37b88",
         "type": "github"
       },
       "original": {
         "owner": "friendlyflow",
-        "ref": "v0.2.1",
+        "ref": "v0.2.2",
         "repo": "loginsicompass",
         "type": "github"
       }
@@ -56,38 +56,6 @@
         "type": "github"
       }
     },
-    "nixpkgs-x86-darwin": {
-      "locked": {
-        "lastModified": 1790772421,
-        "narHash": "sha256-754eQtr0m8xKtNnKYhX7ukI7XaA7oeiQpui1LiEuhyU=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "e49322d1ec25b45f7c587c5fd69ac826d1a57dbc",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixpkgs-26.05-darwin",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs-x86-darwin_2": {
-      "locked": {
-        "lastModified": 1790772421,
-        "narHash": "sha256-754eQtr0m8xKtNnKYhX7ukI7XaA7oeiQpui1LiEuhyU=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "e49322d1ec25b45f7c587c5fd69ac826d1a57dbc",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixpkgs-26.05-darwin",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
     "root": {
       "inputs": {
         "crane": "crane",
@@ -103,20 +71,19 @@
         ],
         "nixpkgs": [
           "nixpkgs"
-        ],
-        "nixpkgs-x86-darwin": "nixpkgs-x86-darwin_2"
+        ]
       },
       "locked": {
-        "lastModified": 1791973165,
-        "narHash": "sha256-NEEXkw7XBYHvECrbj97IkMCPI97+GxvBFkjC4fcxxx0=",
+        "lastModified": 1793889553,
+        "narHash": "sha256-vH5lfFBNMnaHnMj7FxS+Yq+PIm7GB2frBFjtF/wxd3o=",
         "owner": "friendlyflow",
         "repo": "sicompass",
-        "rev": "4d59cde7558f983ab03ea58fafe47bf7a3befe75",
+        "rev": "53b14c1bb90f34aca01d175c59d8e7364c0be110",
         "type": "github"
       },
       "original": {
         "owner": "friendlyflow",
-        "ref": "v0.2.3",
+        "ref": "v0.2.4",
         "repo": "sicompass",
         "type": "github"
       }
@@ -130,20 +97,19 @@
         "nixpkgs": [
           "loginsicompass",
           "nixpkgs"
-        ],
-        "nixpkgs-x86-darwin": "nixpkgs-x86-darwin"
+        ]
       },
       "locked": {
-        "lastModified": 1791527934,
-        "narHash": "sha256-sqvZycLKNx9+bipmTumFvmQGeDWb7RncbCU8PGz7V+Y=",
+        "lastModified": 1793887258,
+        "narHash": "sha256-2MkSZm1OyB786XpK8K/p6QWPD9b9Wg+qklPcUNXExrY=",
         "owner": "friendlyflow",
         "repo": "sicompass-ui",
-        "rev": "7dde157676eec7f44750335cd95acec128535f7b",
+        "rev": "8db8dce68ff06aec30177f1752bb823e230fdbf8",
         "type": "github"
       },
       "original": {
         "owner": "friendlyflow",
-        "ref": "v0.2.1",
+        "ref": "v0.2.2",
         "repo": "sicompass-ui",
         "type": "github"
       }

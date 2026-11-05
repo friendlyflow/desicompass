@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3
+
+Runs sicompass 0.2.4 and loginsicompass 0.2.2.
+
+- The superkey and the bar look like the app: icons in the prefixes, a back arrow on the parent line, links and buttons that stand out, and a rounded border on the row you are on. `f` searches, and Tab opens the beginner's manual.
+- Packages for Debian, Ubuntu, Mint, Fedora, RHEL and openSUSE: a `.deb`, an `.rpm` and an archive, built on Ubuntu 22.04 and installed in a bare system before they are published.
+- Programs you start from a session no longer inherit `LD_LIBRARY_PATH`, which made them load the compositor's libraries and die.
+
 ## 0.2.2
 
 Runs sicompass 0.2.3 and loginsicompass 0.2.1.
