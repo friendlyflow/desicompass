@@ -67,7 +67,7 @@ section = "x11"
 priority = "optional"
 # Upstream's own package, so there is no Debian revision to add to the version.
 revision = ""
-depends = "$auto, sicompass (>= 0.2.4), systemd, dbus, at-spi2-core, libegl1, libgles2, libwayland-server0, libwayland-client0, libwayland-egl1, libwayland-cursor0, libvulkan1, mesa-vulkan-drivers | vulkan-icd"
+depends = "$auto, sicompass (>= 0.2.5), systemd, dbus, at-spi2-core, libegl1, libgles2, libwayland-server0, libwayland-client0, libwayland-egl1, libwayland-cursor0, libvulkan1, mesa-vulkan-drivers | vulkan-icd"
 recommends = "orca, foot, speech-dispatcher, wireplumber"
 maintainer-scripts = "packaging/scripts/"
 assets = [
@@ -92,7 +92,7 @@ summary = "Keyboard-driven tiling Wayland compositor for sicompass"
 license = "GPL-3.0-only"
 url = "https://github.com/friendlyflow/desicompass"
 post_install_script = "packaging/scripts/postinst"
-requires = { sicompass = ">= 0.2.4", systemd = "*", "/usr/bin/dbus-run-session" = "*", at-spi2-core = "*", "libEGL.so.1()(64bit)" = "*", "libGLESv2.so.2()(64bit)" = "*", "libwayland-server.so.0()(64bit)" = "*", "libwayland-client.so.0()(64bit)" = "*", "libwayland-egl.so.1()(64bit)" = "*", "libwayland-cursor.so.0()(64bit)" = "*", "libvulkan.so.1()(64bit)" = "*" }
+requires = { sicompass = ">= 0.2.5", systemd = "*", "/usr/bin/dbus-run-session" = "*", at-spi2-core = "*", "libEGL.so.1()(64bit)" = "*", "libGLESv2.so.2()(64bit)" = "*", "libwayland-server.so.0()(64bit)" = "*", "libwayland-client.so.0()(64bit)" = "*", "libwayland-egl.so.1()(64bit)" = "*", "libwayland-cursor.so.0()(64bit)" = "*", "libvulkan.so.1()(64bit)" = "*" }
 recommends = { mesa-vulkan-drivers = "*", orca = "*", foot = "*", speech-dispatcher = "*", wireplumber = "*" }
 assets = [
     { source = "target/release/desicompass", dest = "/usr/bin/desicompass", mode = "755" },

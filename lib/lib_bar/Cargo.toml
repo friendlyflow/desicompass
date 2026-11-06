@@ -30,7 +30,7 @@ desicompass-bar-protocol = { path = "../lib_bar_protocol" }
 # links it. Keep both at the same pin, and `sicompass-sdk` at the version
 # sicompass-ui requires, or cargo builds two copies. For local work, uncomment
 # the `[patch]` sections at the bottom of the workspace's root Cargo.toml.
-sicompass-sdk = "0.9.13"
+sicompass-sdk = "0.9.14"
 sicompass-ui = { git = "https://github.com/friendlyflow/sicompass-ui", tag = "v0.2.2" }
 
 # NetworkManager, UPower and BlueZ on the system bus; the notification server

@@ -74,16 +74,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1793889553,
-        "narHash": "sha256-vH5lfFBNMnaHnMj7FxS+Yq+PIm7GB2frBFjtF/wxd3o=",
+        "lastModified": 1793951560,
+        "narHash": "sha256-Hf4gNrmEpUXQru184wN+FS5qmS0hOccdpVGZVGgn0F0=",
         "owner": "friendlyflow",
         "repo": "sicompass",
-        "rev": "53b14c1bb90f34aca01d175c59d8e7364c0be110",
+        "rev": "83bb6d9fdb889c7d0aefd1d53175a9d868df4980",
         "type": "github"
       },
       "original": {
         "owner": "friendlyflow",
-        "ref": "v0.2.4",
+        "ref": "v0.2.5",
         "repo": "sicompass",
         "type": "github"
       }
