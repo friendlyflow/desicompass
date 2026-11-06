@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4
+
+Runs sicompass 0.2.5 and loginsicompass 0.2.2.
+
+- The Store and the beginner's manual in the superkey are the ones from sicompass 0.2.5: the photo album and the video store are in the Store, in a media category, and the update banner says what it cannot update.
+- Pages from plugins arrive much faster, through sicompass-sdk 0.9.14.
+
 ## 0.2.3
 
 Runs sicompass 0.2.4 and loginsicompass 0.2.2.

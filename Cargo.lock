@@ -996,7 +996,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "clap",
  "desicompass-bar-protocol",
@@ -1012,7 +1012,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-bar"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "ash",
  "clap",
@@ -1030,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-bar-protocol"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "desicompass-superkey-protocol",
  "libc",
@@ -1042,7 +1042,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-superkey"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "clap",
  "desicompass-bar-protocol",
@@ -1063,7 +1063,7 @@ dependencies = [
 
 [[package]]
 name = "desicompass-superkey-protocol"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "serde",
  "serde_json",
