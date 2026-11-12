@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.5
+
+Runs sicompass 0.2.7 and loginsicompass 0.2.3.
+
+- In the superkey and the bar, Ctrl+Left and Ctrl+Right move by word in every text, Ctrl+Backspace and Ctrl+Delete delete a word, and Ctrl+Home and Ctrl+End go to the start and end of a field. Home and End go along the row of any grid, through sicompass-ui 0.2.4.
+- The Store and the tutorial in the superkey are the ones from sicompass 0.2.7, and the tutorial says the new keys.
+- The login screen has its own beginner's manual on Tab, and the row you are on is outlined.
+
 ## 0.2.4
 
 Runs sicompass 0.2.5 and loginsicompass 0.2.2.
