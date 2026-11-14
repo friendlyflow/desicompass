@@ -34,8 +34,8 @@ zbus = { version = "5", default-features = false, features = ["blocking-api", "a
 
 # The renderer and its element model, exactly as loginsicompass links them:
 # the superkey is a list, searched and read out the way the app's lists are.
-# Not the `sicompass` application crate, which would drag wasmtime, SQLite and
-# a headless Chromium into a superkey.
+# Not the `sicompass` application crate, which would drag SQLite and a
+# headless Chromium into a superkey.
 #
 # Keep `sicompass-sdk` at the version sicompass-ui requires, or cargo builds
 # two copies. sicompass-ui is not on crates.io: pinned by git, to a `rev`
