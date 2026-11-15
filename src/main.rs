@@ -5,9 +5,10 @@
 //! reads it from this repo's history.
 //! Linux-only.
 //!
-//! Unlike the tinywl original this compositor is **cursorless**: it advertises
-//! no `wl_pointer`, windows are placed by the compositor, and every
-//! interaction is a key.
+//! Unlike the tinywl original this compositor is **keyboard-first**: windows are
+//! placed by the compositor and every interaction has a key. It has a pointer
+//! and a touch screen too (`pointer.rs`), whose cursor shows only once the
+//! pointer moves and hides again at the next key (`cursor.rs`).
 //!
 //! ## Keybindings (Super held)
 //!
@@ -36,6 +37,8 @@ mod a11y_keyboard_monitor;
 #[cfg(target_os = "linux")]
 mod bar;
 #[cfg(target_os = "linux")]
+mod cursor;
+#[cfg(target_os = "linux")]
 mod focus;
 #[cfg(target_os = "linux")]
 mod gpu;
@@ -47,6 +50,8 @@ mod keystrokes;
 mod layout;
 #[cfg(target_os = "linux")]
 mod managed_client;
+#[cfg(target_os = "linux")]
+mod pointer;
 #[cfg(target_os = "linux")]
 mod startup;
 #[cfg(target_os = "linux")]
@@ -67,10 +72,7 @@ mod linux {
         backend::{
             egl::EGLDevice,
             input::{Event, InputEvent, KeyState, KeyboardKeyEvent},
-            renderer::{
-                ImportDma, damage::OutputDamageTracker,
-                element::surface::WaylandSurfaceRenderElement, gles::GlesRenderer,
-            },
+            renderer::{ImportDma, damage::OutputDamageTracker, gles::GlesRenderer},
             winit::{self, WinitEvent},
         },
         desktop::space::render_output,
@@ -282,10 +284,6 @@ mod linux {
         let (xkb, source) = crate::xkb::resolve(&args.xkb_overrides());
         info!("xkb {xkb} (from {source})");
         let keyboard = state.seat.add_keyboard(xkb.as_config(), 200, 25)?;
-        // No `add_pointer()`. A seat with no wl_pointer is the honest
-        // advertisement of a cursorless compositor, and it means a client's
-        // pointer-driven paths (sicompass's SDL hit test, for one) can never
-        // fire in the first place.
 
         // Wayland socket, as a calloop source.
         //
@@ -384,6 +382,10 @@ mod linux {
                         },
                     );
                 }
+                // The pointer and touch; see `pointer.rs`.
+                WinitEvent::Input(event) => {
+                    crate::pointer::handle(&mut state, event);
+                }
                 WinitEvent::CloseRequested => {
                     running = false;
                 }
@@ -400,12 +402,21 @@ mod linux {
             // Destructured rather than reached through `state.`, so the
             // renderer (&mut) and the space (&) are borrows of two disjoint
             // fields instead of two borrows of the whole struct.
+            crate::cursor::refresh_status(&mut state.cursor_status);
+            let pointer_at = state
+                .seat
+                .get_pointer()
+                .map(|p| p.current_location())
+                .unwrap_or_default();
             {
                 let State {
                     backend,
                     space,
                     output,
                     start_time,
+                    cursor_status,
+                    cursor_shown,
+                    cursor_sprites,
                     ..
                 } = &mut state;
 
@@ -415,14 +426,26 @@ mod linux {
                 let age = backend.buffer_age().unwrap_or(0);
                 let render_result = {
                     let (renderer, mut framebuffer) = backend.bind()?;
-                    render_output::<_, WaylandSurfaceRenderElement<GlesRenderer>, _, _>(
+                    // In front of everything, so first.
+                    let cursor = if *cursor_shown {
+                        crate::cursor::render_elements(
+                            renderer,
+                            cursor_sprites,
+                            cursor_status,
+                            pointer_at,
+                            output.current_scale().fractional_scale().into(),
+                        )
+                    } else {
+                        Vec::new()
+                    };
+                    render_output::<_, crate::cursor::CursorRenderElement<GlesRenderer>, _, _>(
                         output,
                         renderer,
                         &mut framebuffer,
                         1.0,
                         age,
                         [&*space],
-                        &[],
+                        &cursor,
                         &mut damage_tracker,
                         [0.0, 0.0, 0.0, 1.0],
                     )
@@ -444,6 +467,7 @@ mod linux {
                                 Some(out.clone())
                             });
                         });
+                        crate::cursor::send_frame(cursor_status, &out, now);
                     }
                     Err(err) => error!("render failed: {err}"),
                 }
@@ -452,6 +476,7 @@ mod linux {
             state.send_superkey_frame_if_unmapped();
             state.maintain_superkey();
             state.maintain_bar();
+            state.maintain_cursor_size();
             state.reap_children();
             state.space.refresh();
             state.popups.cleanup();

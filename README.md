@@ -7,8 +7,11 @@ keyboard-first, accessibility-first way to use your entire computer. It is the
 session that Sicompass runs in when it is your whole desktop rather than one
 window among others.
 
-It has no mouse pointer at all. It advertises no `wl_pointer`, it places every
-window itself, and every interaction is a key. It is built on
+It places every window itself, and every interaction has a key. A mouse, a
+touchpad and a touch screen work too. A click on a window gives it the
+keyboard, and the cursor shows only once the pointer moves and hides again at
+the next key, so someone who only uses keys never sees it. The cursor grows
+with the font scale in the accessibility settings. It is built on
 [smithay](https://github.com/Smithay/smithay).
 
 ## Keys

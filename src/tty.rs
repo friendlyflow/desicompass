@@ -347,6 +347,7 @@ pub fn run(args: TtyArgs) -> Result<(), Box<dyn std::error::Error>> {
         state.send_superkey_frame_if_unmapped();
         state.maintain_superkey();
         state.maintain_bar();
+        state.maintain_cursor_size();
         state.reap_children();
         state.space.refresh();
         state.popups.cleanup();
@@ -358,12 +359,32 @@ pub fn run(args: TtyArgs) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+smithay::backend::renderer::element::render_elements! {
+    /// What a frame is made of: the cursor in front, then the windows.
+    TtyElements<=GlesRenderer>;
+    Cursor=crate::cursor::CursorRenderElement<GlesRenderer>,
+    Space=SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>,
+}
+
 /// Draw one frame and queue it for the next page flip.
 fn render(state: &mut State) {
     let output = state.output.clone();
     let now = state.start_time.elapsed();
+    crate::cursor::refresh_status(&mut state.cursor_status);
+    let pointer_at = state
+        .seat
+        .get_pointer()
+        .map(|p| p.current_location())
+        .unwrap_or_default();
 
-    let State { backend, space, .. } = state;
+    let State {
+        backend,
+        space,
+        cursor_status,
+        cursor_shown,
+        cursor_sprites,
+        ..
+    } = state;
     let Gpu::Tty(tty) = backend else {
         return;
     };
@@ -371,16 +392,28 @@ fn render(state: &mut State) {
         return;
     }
 
-    type SpaceElements =
-        SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>;
-    let elements: Vec<SpaceElements> =
-        match space_render_elements(&mut tty.renderer, [&*space], &output, 1.0) {
-            Ok(elements) => elements,
-            Err(err) => {
-                error!("failed to collect render elements: {err}");
-                return;
-            }
-        };
+    // Front first: the cursor, then the windows.
+    let mut elements: Vec<TtyElements> = Vec::new();
+    if *cursor_shown {
+        elements.extend(
+            crate::cursor::render_elements(
+                &mut tty.renderer,
+                cursor_sprites,
+                cursor_status,
+                pointer_at,
+                output.current_scale().fractional_scale().into(),
+            )
+            .into_iter()
+            .map(TtyElements::Cursor),
+        );
+    }
+    match space_render_elements(&mut tty.renderer, [&*space], &output, 1.0) {
+        Ok(space_elements) => elements.extend(space_elements.into_iter().map(TtyElements::Space)),
+        Err(err) => {
+            error!("failed to collect render elements: {err}");
+            return;
+        }
+    }
 
     match tty.compositor.render_frame::<_, _>(
         &mut tty.renderer,
@@ -403,6 +436,7 @@ fn render(state: &mut State) {
                     Some(output.clone())
                 });
             });
+            crate::cursor::send_frame(cursor_status, &output, now);
         }
         Err(err) => error!("render failed: {err}"),
     }
@@ -499,9 +533,11 @@ fn handle_input(state: &mut State, event: InputEvent<LibinputInputBackend>) {
                 crate::state::apply_keybinding(app_state, mods, sym.raw(), pressed)
             },
         );
+    } else {
+        // The pointer and touch; see `pointer.rs`. A tablet's events are not
+        // handled.
+        crate::pointer::handle(state, event);
     }
-    // Pointer, touch and tablet events are dropped on purpose: desicompass
-    // advertises no wl_pointer, so there is nowhere to send them.
 }
 
 /// The first connected connector, and a CRTC that can drive it.

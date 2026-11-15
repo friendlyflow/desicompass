@@ -2,9 +2,10 @@
 //! the smithay delegate traits.
 //!
 //! Mirrors the `tinywl_server` struct in `legacy-c/main.c` but
-//! expressed through smithay's typed API instead of raw wlroots calls, and
-//! without the cursor half: desicompass is keyboard-driven and advertises no
-//! `wl_pointer` at all.
+//! expressed through smithay's typed API instead of raw wlroots calls.
+//! desicompass is keyboard-first: its seat has a pointer and a touch screen
+//! too (see `pointer.rs`), but the cursor shows only once the pointer moves
+//! and hides again at the next key (see `cursor.rs`).
 
 use std::time::Instant;
 
@@ -103,6 +104,20 @@ pub struct State {
     pub a11y_keyboard: crate::a11y_keyboard_monitor::A11yKeyboardMonitor,
     /// Watches for a bare Super tap, the superkey's key.
     pub super_tap: SuperTap,
+    /// What the client under the pointer asked the cursor to look like.
+    pub cursor_status: CursorImageStatus,
+    /// Whether the cursor is drawn: from the pointer's first move until the next
+    /// key press, so it never shows for someone using only keys.
+    pub cursor_shown: bool,
+    /// The cursor's built-in shapes, sized by the session's font scale.
+    pub cursor_sprites: crate::cursor::Sprites,
+    /// The font scale the sprites were drawn for, and when the files were last
+    /// read ([`State::maintain_cursor_size`]).
+    pub cursor_font_scale: f64,
+    pub cursor_scale_checked: Instant,
+    /// Held only to keep the `wp_cursor_shape_manager_v1` global alive.
+    #[allow(dead_code)]
+    pub cursor_shape_state: smithay::wayland::cursor_shape::CursorShapeManagerState,
 
     // ---- Desktop ----
     /// Cleared by the quit binding; the main loop checks it each pass.
@@ -165,7 +180,14 @@ impl State {
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(display);
         let data_device_state = DataDeviceState::new::<Self>(display);
         let mut seat_state = SeatState::new();
-        let seat = seat_state.new_wl_seat(display, "seat0");
+        let mut seat = seat_state.new_wl_seat(display, "seat0");
+        // The keyboard is added by each backend, with the layout it resolved.
+        seat.add_pointer();
+        seat.add_touch();
+        let cursor_shape_state =
+            smithay::wayland::cursor_shape::CursorShapeManagerState::new::<Self>(display);
+        let cursor_scale = output.current_scale().integer_scale();
+        let cursor_font_scale = crate::cursor::font_scale();
 
         let mut space = Space::default();
         space.map_output(&output, (0, 0));
@@ -184,6 +206,12 @@ impl State {
             seat,
             a11y_keyboard: crate::a11y_keyboard_monitor::A11yKeyboardMonitor::start(),
             super_tap: SuperTap::default(),
+            cursor_status: CursorImageStatus::default_named(),
+            cursor_shown: false,
+            cursor_sprites: crate::cursor::Sprites::new(cursor_scale, cursor_font_scale),
+            cursor_font_scale,
+            cursor_scale_checked: Instant::now(),
+            cursor_shape_state,
             running: true,
             space,
             popups: PopupManager::default(),
@@ -336,6 +364,22 @@ impl State {
                 toplevel.send_pending_configure();
             }
             self.space.map_element(window, rect.loc, false);
+        }
+    }
+
+    /// Once a second: the cursor follows the session's font scale, which the
+    /// superkey and the login screen change in the shared accessibility file.
+    pub fn maintain_cursor_size(&mut self) {
+        if self.cursor_scale_checked.elapsed() < std::time::Duration::from_secs(1) {
+            return;
+        }
+        self.cursor_scale_checked = Instant::now();
+        let scale = crate::cursor::font_scale();
+        if (scale - self.cursor_font_scale).abs() > f64::EPSILON {
+            info!("cursor follows font scale {scale}");
+            self.cursor_font_scale = scale;
+            let output = self.output.current_scale().integer_scale();
+            self.cursor_sprites = crate::cursor::Sprites::new(output, scale);
         }
     }
 
@@ -613,6 +657,10 @@ pub fn observe_keystroke(
     modifiers: &smithay::input::keyboard::ModifiersState,
     pressed: bool,
 ) {
+    // A key hides the cursor until the pointer moves again.
+    if pressed {
+        state.cursor_shown = false;
+    }
     if !pressed || !state.bar.wants_keys() {
         return;
     }
@@ -878,11 +926,19 @@ impl SeatHandler for State {
 
     fn focus_changed(&mut self, _seat: &Seat<Self>, _focused: Option<&WlSurface>) {}
 
-    fn cursor_image(&mut self, _seat: &Seat<Self>, _image: CursorImageStatus) {}
+    fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
+        self.cursor_status = image;
+    }
 }
 
-// Required of every seat's handler, even one like ours that never grows a
-// wl_pointer, so there is never a constraint to act on.
+// The cursor-shape protocol asks for it. desicompass has no tablet support of
+// its own, so the defaults are all it needs.
+impl smithay::input::tablet::TabletSeatHandler for State {
+    type ToolFocus = WlSurface;
+}
+
+// Required of every seat's handler. Nothing here locks or confines the
+// pointer, so there is never a constraint to act on.
 impl PointerConstraintsHandler for State {}
 
 // ---------------------------------------------------------------------------
