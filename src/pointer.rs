@@ -26,7 +26,10 @@ use crate::state::State;
 
 impl State {
     /// The surface at `pos` on the output, and where its origin is.
-    pub fn surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
+    pub fn surface_under(
+        &self,
+        pos: Point<f64, Logical>,
+    ) -> Option<(WlSurface, Point<f64, Logical>)> {
         let (window, loc) = self.space.element_under(pos)?;
         window
             .surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL)
@@ -62,7 +65,11 @@ impl State {
         }
     }
 
-    fn pointer_moved(&mut self, pos: Point<f64, Logical>, time: smithay::backend::input::InputTime) {
+    fn pointer_moved(
+        &mut self,
+        pos: Point<f64, Logical>,
+        time: smithay::backend::input::InputTime,
+    ) {
         let Some(pointer) = self.seat.get_pointer() else {
             return;
         };

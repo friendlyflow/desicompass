@@ -38,6 +38,7 @@ render_elements! {
 }
 
 /// `X` is the outline, `.` the fill, a space is transparent.
+#[rustfmt::skip]
 const ARROW: &[&str] = &[
     "X",
     "XX",
@@ -61,6 +62,7 @@ const ARROW: &[&str] = &[
     "       XX",
 ];
 
+#[rustfmt::skip]
 const HAND: &[&str] = &[
     "     XX",
     "    X..X",
@@ -86,6 +88,7 @@ const HAND: &[&str] = &[
 ];
 
 /// The text beam is dark with a light edge, so it shows on light and dark text.
+#[rustfmt::skip]
 const BEAM: &[&str] = &[
     " ..... ",
     ".XX.XX.",
@@ -238,7 +241,9 @@ where
                     .and_then(|a| a.lock().ok().map(|a| a.hotspot))
                     .unwrap_or_default()
             });
-            let at = (location - hotspot.to_f64()).to_physical(scale).to_i32_round();
+            let at = (location - hotspot.to_f64())
+                .to_physical(scale)
+                .to_i32_round();
             render_elements_from_surface_tree(renderer, surface, at, scale, 1.0, Kind::Cursor)
         }
     }
@@ -273,7 +278,12 @@ fn parse_font_scale(text: &str) -> Option<f64> {
 pub fn font_scale() -> f64 {
     ACCESSIBILITY_FILES
         .iter()
-        .find_map(|p| std::fs::read_to_string(p).ok().as_deref().and_then(parse_font_scale))
+        .find_map(|p| {
+            std::fs::read_to_string(p)
+                .ok()
+                .as_deref()
+                .and_then(parse_font_scale)
+        })
         .unwrap_or(DEFAULT_FONT_SCALE)
 }
 
@@ -288,7 +298,11 @@ pub fn refresh_status(status: &mut CursorImageStatus) {
 }
 
 /// After a frame: a client's own cursor surface may draw its next one.
-pub fn send_frame(status: &CursorImageStatus, output: &smithay::output::Output, now: std::time::Duration) {
+pub fn send_frame(
+    status: &CursorImageStatus,
+    output: &smithay::output::Output,
+    now: std::time::Duration,
+) {
     if let CursorImageStatus::Surface(surface) = status {
         smithay::desktop::utils::send_frames_surface_tree(
             surface,
@@ -308,7 +322,10 @@ mod tests {
     fn every_sprite_line_is_outline_fill_or_nothing() {
         for art in [ARROW, HAND, BEAM] {
             for line in art {
-                assert!(line.bytes().all(|c| matches!(c, b'X' | b'.' | b' ')), "{line:?}");
+                assert!(
+                    line.bytes().all(|c| matches!(c, b'X' | b'.' | b' ')),
+                    "{line:?}"
+                );
             }
         }
     }
@@ -326,7 +343,13 @@ mod tests {
     fn a_bigger_font_scale_gives_a_bigger_cursor() {
         let (_, w1, h1) = pixels(ARROW, 1.0, BLACK, WHITE);
         let (_, w2, h2) = pixels(ARROW, 2.5, BLACK, WHITE);
-        assert_eq!((w2, h2), ((f64::from(w1) * 2.5).round() as i32, (f64::from(h1) * 2.5).round() as i32));
+        assert_eq!(
+            (w2, h2),
+            (
+                (f64::from(w1) * 2.5).round() as i32,
+                (f64::from(h1) * 2.5).round() as i32
+            )
+        );
     }
 
     #[test]
@@ -348,7 +371,10 @@ mod tests {
     fn a_hotspot_lies_on_its_sprite() {
         for (art, (x, y)) in [(ARROW, (0usize, 0usize)), (HAND, (5, 0)), (BEAM, (3, 8))] {
             let c = art[y].as_bytes().get(x).copied();
-            assert!(matches!(c, Some(b'X' | b'.')), "hotspot ({x},{y}) is on {c:?}");
+            assert!(
+                matches!(c, Some(b'X' | b'.')),
+                "hotspot ({x},{y}) is on {c:?}"
+            );
         }
     }
 }
