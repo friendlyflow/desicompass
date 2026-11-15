@@ -1003,7 +1003,7 @@ mod tests {
         assert_eq!(nested.key, "Tutorial [t]");
         let sections = texts(&nested.children);
         assert_eq!(sections, tutorial_at(&[]));
-        assert_eq!(sections.len(), 7, "{sections:?}");
+        assert_eq!(sections.len(), 8, "{sections:?}");
         assert!(sections[0].starts_with("+Getting started"), "{sections:?}");
     }
 

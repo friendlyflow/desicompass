@@ -232,7 +232,7 @@ fn assert_tutorial_in_general(h: &Harness) {
     assert_eq!(h.r.coordinate, Coordinate::General);
     assert!(!h.r.launcher_mode, "the app's keymap, not the launcher's");
     let sections = h.rows();
-    assert_eq!(sections.len(), 7, "{sections:?}");
+    assert_eq!(sections.len(), 8, "{sections:?}");
     assert!(sections[0].starts_with("+ Getting started"), "{sections:?}");
 }
 

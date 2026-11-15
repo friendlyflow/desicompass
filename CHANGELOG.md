@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.6
+
+Runs sicompass 0.2.8 and loginsicompass 0.2.4.
+
+- A mouse, a touchpad and a touch screen work in the session. A click on a window gives it the keyboard, and a cursor is drawn: from the pointer's first move until the next key, so someone who only uses keys never sees it. It is a hand over what a click uses and a text beam over a field, and it grows with the font scale in the accessibility settings.
+- In the superkey and the bar, a click uses a line at once, a click on the line above the list goes back, a right click is Escape, and a swipe goes back or inside, through sicompass-ui 0.2.5.
+- The Store and the tutorial in the superkey are the ones from sicompass 0.2.8, and the tutorial has a Mouse and touch section.
+
 ## 0.2.5
 
 Runs sicompass 0.2.7 and loginsicompass 0.2.3.

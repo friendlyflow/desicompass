@@ -26,16 +26,16 @@
         "sicompass-ui": "sicompass-ui"
       },
       "locked": {
-        "lastModified": 1794304836,
-        "narHash": "sha256-/RHSxxUbNFFfRPEB+bDKTbtkD5jNsmqS0RXet4piEIk=",
+        "lastModified": 1794728514,
+        "narHash": "sha256-U+2OpVZtvBg6RczfthNfnAUB7HjpXFQznln6B3+gw/c=",
         "owner": "friendlyflow",
         "repo": "loginsicompass",
-        "rev": "dc6d488bd177b9deec8a729c5b0a25911ae77388",
+        "rev": "5472e4c5ef39ed0bcd334498683a8b323afe7a96",
         "type": "github"
       },
       "original": {
         "owner": "friendlyflow",
-        "ref": "v0.2.3",
+        "ref": "v0.2.4",
         "repo": "loginsicompass",
         "type": "github"
       }
@@ -74,16 +74,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1794471411,
-        "narHash": "sha256-inqUGalBKn8ISOhgGrteZ/jwnHef8rmcxidzk1U4pPA=",
+        "lastModified": 1794726933,
+        "narHash": "sha256-P2gfOEsDkylaod5V7URkTXCAYdVRVh2gQZWbJMgiPAo=",
         "owner": "friendlyflow",
         "repo": "sicompass",
-        "rev": "1232a691b284f657c5c248d76cb9c788e98b9c2a",
+        "rev": "7bc2ea14a5a996e72f3857f87a5ac769f19f2596",
         "type": "github"
       },
       "original": {
         "owner": "friendlyflow",
-        "ref": "v0.2.7",
+        "ref": "v0.2.8",
         "repo": "sicompass",
         "type": "github"
       }
@@ -100,16 +100,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1794303788,
-        "narHash": "sha256-8aGC40lYbp2lKdrEChpQX0T3+4mR9GixWQfR4C747ls=",
+        "lastModified": 1794724346,
+        "narHash": "sha256-l7aoGKudHraWH+CotqtCdCiLFGTw0qwX4cYhqKuKWnM=",
         "owner": "friendlyflow",
         "repo": "sicompass-ui",
-        "rev": "a100148f298032b71c3bd14e4cec0858dd2f404e",
+        "rev": "bac93593a37d39b5f346c6721647956cee08d075",
         "type": "github"
       },
       "original": {
         "owner": "friendlyflow",
-        "ref": "v0.2.3",
+        "ref": "v0.2.5",
         "repo": "sicompass-ui",
         "type": "github"
       }
